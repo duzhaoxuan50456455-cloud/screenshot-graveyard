@@ -47,7 +47,7 @@ The properties are grouped into these reusable modules:
 
 ### Phase 0 — November 4 (today): Project bootstrap & deploy-feasibility (P0)
 
-- [ ] 0.1 Scaffold the React + TypeScript + Vite frontend
+- [x] 0.1 Scaffold the React + TypeScript + Vite frontend
   - Create the frontend app with Vite (React-TS template), ESLint + Prettier, and Vitest + Testing Library.
   - Add single-command `test` and `dev` scripts to `package.json`.
   - **Learn:** frontend toolchain bootstrap and a runnable component test harness.
@@ -56,7 +56,7 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** a real minimal Vitest test renders an `App` component (or asserts a trivial truth inside a mounted component) and passes via `npm test -- --run`; `npm run build` succeeds. NOT an empty suite. *(CORRECTION 5)*
   - **Priority:** P0
 
-- [ ] 0.2 Scaffold the Python + FastAPI backend
+- [x] 0.2 Scaffold the Python + FastAPI backend
   - Create the backend with FastAPI, uvicorn, SQLAlchemy 2.x, Alembic, Pydantic, Pillow, Hypothesis, and pytest, all pinned to explicit versions.
   - Define an app factory entrypoint and a single-command `pytest` script.
   - **Learn:** backend toolchain bootstrap with pinned deps and an importable app factory.
@@ -72,7 +72,7 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** a pytest client call to `/api/health` returns `200` and body `{"status":"ok"}`.
   - **Priority:** P0
 
-- [ ] 0.4 Serve the SPA same-origin and wire a real frontend→backend call
+- [x] 0.4 Serve the SPA same-origin and wire a real frontend→backend call
   - Serve the built SPA from the FastAPI app at the same origin as `/api`.
   - Add a frontend call to `/api/health` that renders the result in the UI.
   - **Dependencies:** 0.1, 0.3

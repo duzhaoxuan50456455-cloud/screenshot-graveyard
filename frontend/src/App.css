@@ -12,3 +12,25 @@
   opacity: 0.8;
   font-style: italic;
 }
+
+.health {
+  margin-top: 1.5rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.health__indicator {
+  font-size: 1.1rem;
+}
+
+.health--checking {
+  color: #c9b8f0;
+}
+
+.health--online {
+  color: #7fd6a0;
+}
+
+.health--offline {
+  color: #e68a8a;
+}

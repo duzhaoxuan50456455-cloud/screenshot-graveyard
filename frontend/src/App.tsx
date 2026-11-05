@@ -1,4 +1,5 @@
 import './App.css';
+import HealthStatus from './HealthStatus';
 
 function App() {
   return (
@@ -7,6 +8,7 @@ function App() {
       <p className="tagline">
         Where screenshots finish their unfinished business.
       </p>
+      <HealthStatus />
     </main>
   );
 }
