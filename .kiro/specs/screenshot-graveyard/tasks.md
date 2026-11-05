@@ -65,7 +65,7 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** a real minimal pytest (e.g. asserts the importable app factory returns a FastAPI app, or a trivial unit test) runs and passes via `pytest`. NOT an empty suite; needs no network. *(CORRECTION 5)*
   - **Priority:** P0
 
-- [ ] 0.3 Implement `GET /api/health`
+- [x] 0.3 Implement `GET /api/health`
   - Add a health route returning `200 {"status":"ok"}` with no auth and no DB access.
   - **Dependencies:** 0.2
   - **Requirements:** 14.1, 15.1
@@ -80,35 +80,35 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** a Vitest test mocks `/api/health` and asserts the rendered component shows the health status; a backend test asserts the SPA entry is served from the app origin.
   - **Priority:** P0
 
-- [ ] 0.5 Create `.kiro/steering/product.md`
+- [x] 0.5 Create `.kiro/steering/product.md`
   - Document product purpose, the three pillars, and the explicit non-goals.
   - **Dependencies:** none
   - **Requirements:** 15.8
   - **Acceptance test / expected output:** file exists at `.kiro/steering/product.md` and names the three pillars and the P2 non-goals.
   - **Priority:** P0
 
-- [ ] 0.6 Create `.kiro/steering/architecture.md`
+- [x] 0.6 Create `.kiro/steering/architecture.md`
   - Document the layered backend, same-origin deployment, DB + private file volume split, and the AIAdapter boundary.
   - **Dependencies:** none
   - **Requirements:** 15.8
   - **Acceptance test / expected output:** file exists at `.kiro/steering/architecture.md` and describes the middleware→router→service→repository/file-store layering.
   - **Priority:** P0
 
-- [ ] 0.7 Create `.kiro/steering/safety.md`
+- [x] 0.7 Create `.kiro/steering/safety.md`
   - Enumerate INV-1 through INV-10 with one line each.
   - **Dependencies:** none
   - **Requirements:** 15.8
   - **Acceptance test / expected output:** file exists at `.kiro/steering/safety.md` and lists all ten invariants INV-1…INV-10.
   - **Priority:** P0
 
-- [ ] 0.8 Create development docs and repo hygiene files
+- [x] 0.8 Create development docs and repo hygiene files
   - Add `docs/kiro-development-log.md`, a README dev section, and a `.gitignore`.
   - **Dependencies:** none
   - **Requirements:** 15.7, 15.8
   - **Acceptance test / expected output:** `docs/kiro-development-log.md`, a README with a dev section, and `.gitignore` all exist in the repo.
   - **Priority:** P0
 
-- [ ] 0.9 First reviewed commit (describe only — do NOT commit)
+- [-] 0.9 First reviewed commit (describe only — do NOT commit)
   - Describe the intended first commit contents and message; do not execute any git commit as part of this planning workflow.
   - **Dependencies:** 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8
   - **Requirements:** 15.6
