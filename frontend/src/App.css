@@ -1,0 +1,14 @@
+.app {
+  text-align: center;
+  padding: 2rem;
+}
+
+.app h1 {
+  font-size: 2.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.tagline {
+  opacity: 0.8;
+  font-style: italic;
+}

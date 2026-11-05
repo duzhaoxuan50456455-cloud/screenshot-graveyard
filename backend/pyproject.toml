@@ -1,0 +1,36 @@
+[project]
+name = "screenshot-graveyard-backend"
+version = "0.1.0"
+description = "Backend for Screenshot Graveyard (FastAPI + SQLAlchemy + Pydantic)."
+requires-python = ">=3.11"
+
+# Direct dependencies pinned to explicit, reproducible versions.
+# The full transitive lock lives in requirements.txt.
+dependencies = [
+    "fastapi==0.162.0",
+    "uvicorn[standard]==0.54.0",
+    "pydantic==2.14.2",
+    "SQLAlchemy==2.1.8",
+    "alembic==1.20.1",
+    "pillow==13.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==9.2.0",
+    "hypothesis==6.170.14",
+    "httpx==0.28.1",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["app"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "-ra"
+pythonpath = ["."]

@@ -1,0 +1,54 @@
+# ---- Dependencies ----
+node_modules/
+**/node_modules/
+.venv/
+**/.venv/
+venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+
+# ---- Build output / artifacts ----
+dist/
+**/dist/
+build/
+*.tsbuildinfo
+
+# ---- Test / tooling caches ----
+.pytest_cache/
+**/.pytest_cache/
+.hypothesis/
+**/.hypothesis/
+coverage/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# ---- Local databases ----
+*.db
+*.sqlite
+*.sqlite3
+
+# ---- Local private image storage (original bytes volume) ----
+storage/
+**/storage/
+*.local-storage/
+
+# ---- Secrets / environment ----
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+credentials.json
+
+# ---- OS / editor cruft ----
+.DS_Store
+*.log
+Thumbs.db
+
+# ---- Kiro transient / session data (not source) ----
+.kiro/sessions/
+**/tasks.meta.json
