@@ -52,3 +52,9 @@ Thumbs.db
 # ---- Kiro transient / session data (not source) ----
 .kiro/sessions/
 **/tasks.meta.json
+
+# ---- Backend local dev DB and private storage volume ----
+backend/local.db
+backend/var/
+alembic_tmp.db
+**/alembic_tmp.db

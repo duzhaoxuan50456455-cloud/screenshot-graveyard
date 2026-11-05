@@ -115,3 +115,27 @@ the git index is always a recovery point.
   secrets are never committed (see root `.gitignore`).
 - Kiro-generated transient data (`tasks.meta.json`, any `.kiro/sessions/`) is
   gitignored.
+
+## Phase 1
+
+### Task 1.0 — Early cloud persistence feasibility: PARTIALLY VERIFIED / BLOCKED ON DEPLOYMENT APPROVAL
+
+Status: **not fully complete.** The approved acceptance criterion (a real PaaS
+instance restart proving a managed Postgres row and a persistent-volume byte file
+both survive) has **not** been met and its wording is unchanged.
+
+Verified locally (no deploy, no new deps, nothing committed): the persistence
+*mechanism and layout* are sound — a content-addressed write-once byte file
+(`0o444`, exclusive create + fsync) and a committed relational row both survive a
+simulated process restart, and the byte file's SHA-256 re-verifies equal to its
+stored checksum after restart.
+
+Not yet verified (requires deployment approval): managed **PostgreSQL** durability
+across an instance restart, and a **private persistent volume** surviving a real
+redeploy on the chosen PaaS (Fly.io preferred; Render/Railway fallback).
+
+Decision (Option C, adjusted): accept the local mechanism proof for now but do
+**not** defer the real cloud smoke to Phase 5. Target a real PostgreSQL + private
+persistent storage restart test by **November 12, 2026**, pending the user's
+deployment/account approval. Task 1.0 is non-blocking, so Phase 1 local work
+proceeds in parallel.

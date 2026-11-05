@@ -127,7 +127,7 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** after a restart of the smoke instance, the probe Postgres row and the probe byte file are both still present. This is a feasibility smoke test, distinct from the Phase 5 deployed-product verification.
   - **Priority:** P0
 
-- [ ] 1.1 Create the DB schema and Alembic migrations
+- [x] 1.1 Create the DB schema and Alembic migrations
   - Define all tables (`workspace`, `content_blob`, `screenshot`, `artifact`, `artifact_version`, `source_reference`, `consent_record`, `operation`) with the UNIQUE constraints and `workspace_id` FK + index on every non-`workspace` table.
   - **Learn:** SQLAlchemy 2.x models + Alembic migrations with constraint-backed integrity.
   - **Dependencies:** 0.2

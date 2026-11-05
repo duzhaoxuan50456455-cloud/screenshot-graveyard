@@ -21,6 +21,12 @@ dev = [
     "hypothesis==6.170.14",
     "httpx==0.28.1",
 ]
+# PostgreSQL driver — declared for the production target and for the gated
+# Postgres tests (TEST_POSTGRES_URL). NOT installed in the local dev env as of
+# Task 1.1; install with: pip install -e ".[postgres]" when targeting Postgres.
+postgres = [
+    "psycopg[binary]==3.2.3",
+]
 
 [build-system]
 requires = ["setuptools>=68"]
