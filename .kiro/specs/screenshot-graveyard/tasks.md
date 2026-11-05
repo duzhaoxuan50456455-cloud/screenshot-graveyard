@@ -108,7 +108,7 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** `docs/kiro-development-log.md`, a README with a dev section, and `.gitignore` all exist in the repo.
   - **Priority:** P0
 
-- [-] 0.9 First reviewed commit (describe only — do NOT commit)
+- [x] 0.9 First reviewed commit (describe only — do NOT commit)
   - Describe the intended first commit contents and message; do not execute any git commit as part of this planning workflow.
   - **Dependencies:** 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8
   - **Requirements:** 15.6
