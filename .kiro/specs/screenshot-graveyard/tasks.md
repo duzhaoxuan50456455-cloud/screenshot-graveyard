@@ -172,7 +172,7 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** unit/integration tests (local, no deployment) assert exclusive-create fails on an existing path without replacing bytes, published files are `0o444`, and in-process failures remove the temp file.
   - **Priority:** P0
 
-- [ ] 1.7 Implement upload validation (content-authoritative policy)
+- [x] 1.7 Implement upload validation (content-authoritative policy)
   - Enforce the ordered policy: size gate before decode; file signature; Pillow `verify()` + load; ≈40 MP / 12000 px cap; treat extension/MIME as hints only; on mismatch accept and persist the detected true format.
   - **Dependencies:** 0.2
   - **Requirements:** 1.2, 1.3, 1.4, 1.5, INV-1, P5, P6

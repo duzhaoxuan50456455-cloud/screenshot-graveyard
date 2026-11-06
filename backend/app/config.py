@@ -118,3 +118,14 @@ MAX_SCREENSHOTS_PER_WORKSPACE: int = int(
 MAX_AI_CALLS_PER_WORKSPACE: int = int(
     os.environ.get("MAX_AI_CALLS_PER_WORKSPACE", "1000")
 )
+
+
+# ---- Upload image validation (Task 1.7) ----
+# Supported image formats (content-authoritative; A5 / Req 1.2-1.3). Declared
+# filename extension and MIME type are HINTS only, never the sole reject reason.
+SUPPORTED_IMAGE_FORMATS: tuple[str, ...] = ("PNG", "JPEG", "WEBP")
+
+# Decompression-bomb guard (design CORRECTION 3): max single dimension and total
+# megapixels. 40 MP comfortably exceeds legitimate screenshots while blocking bombs.
+MAX_IMAGE_DIMENSION_PX: int = int(os.environ.get("MAX_IMAGE_DIMENSION_PX", "12000"))
+MAX_IMAGE_MEGAPIXELS: float = float(os.environ.get("MAX_IMAGE_MEGAPIXELS", "40"))
