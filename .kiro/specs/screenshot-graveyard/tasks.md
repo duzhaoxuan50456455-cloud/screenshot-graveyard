@@ -164,7 +164,7 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** unit test on the token bucket; router test asserts `413` past the size cap (before full buffering) and `429` past the rate limit.
   - **Priority:** P0
 
-- [ ] 1.6 Implement the write-once content-addressed file store
+- [x] 1.6 Implement the write-once content-addressed file store
   - Provide `write_once` / `read` / `exists` only (no delete, no overwrite); temp files in a reserved `.tmp/`; `flush()` + `os.fsync()`; publish by exclusive `os.link` / `open(O_CREAT|O_EXCL)`; set published files `0o444`; `try/finally` temp cleanup.
   - **Learn:** OS-level exclusive-create publication and crash-safe temp handling.
   - **Dependencies:** 0.2  *(CORRECTION 2 — depends only on 0.2; NOT on the cloud feasibility task 1.0)*

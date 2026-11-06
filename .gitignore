@@ -31,9 +31,14 @@ htmlcov/
 *.sqlite3
 
 # ---- Local private image storage (original bytes volume) ----
-storage/
-**/storage/
+# The private original-bytes volume lives at backend/var/storage (STORAGE_ROOT),
+# covered by the backend/var/ rule below. Also ignore a root-level storage/ data
+# dir. NEVER ignore the application source package backend/app/storage/.
+/storage/
 *.local-storage/
+!backend/app/storage/
+!backend/app/storage/*.py
+# (bytecode under the source package stays ignored by the __pycache__ rule)
 
 # ---- Secrets / environment ----
 .env
