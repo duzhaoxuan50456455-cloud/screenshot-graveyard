@@ -19,9 +19,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+
+from app.middleware.workspace import WorkspaceMiddleware
 
 APP_TITLE = "Screenshot Graveyard API"
 APP_VERSION = "0.1.0"
@@ -41,6 +43,17 @@ def _build_api_router() -> APIRouter:
     def health() -> dict[str, str]:
         """Liveness check. No auth, no database dependency."""
         return {"status": "ok"}
+
+    @router.get("/workspace")
+    def workspace(request: Request) -> dict[str, bool]:
+        """Bootstrap/confirm the visitor's Workspace.
+
+        The WorkspaceMiddleware has already resolved (or minted) the trusted
+        workspace id and attached it to request.state. This endpoint returns a
+        non-sensitive confirmation only — it NEVER returns the raw token or the
+        workspace id, so nothing identity-bearing leaks into the response body.
+        """
+        return {"workspaceActive": getattr(request.state, "workspace_id", None) is not None}
 
     return router
 
@@ -75,7 +88,7 @@ def _mount_spa(application: FastAPI, dist_dir: Path) -> None:
         return FileResponse(index_file)
 
 
-def create_app() -> FastAPI:
+def create_app(workspace_session_factory=None) -> FastAPI:
     """Build and return a configured FastAPI application instance.
 
     Returns:
@@ -83,6 +96,11 @@ def create_app() -> FastAPI:
         when ``frontend/dist`` exists, the built SPA served at the same origin.
     """
     application = FastAPI(title=APP_TITLE, version=APP_VERSION)
+
+    # Resolve/mint the trusted workspace identity from the httpOnly cookie.
+    application.add_middleware(
+        WorkspaceMiddleware, session_factory=workspace_session_factory
+    )
 
     # Register the API first so real API routes always win over the SPA.
     application.include_router(_build_api_router())

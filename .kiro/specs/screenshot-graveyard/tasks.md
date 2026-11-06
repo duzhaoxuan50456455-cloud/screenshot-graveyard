@@ -142,7 +142,7 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** repository unit tests assert that reads/writes are filtered by `workspace_id` and that there is no method exposing cross-workspace rows.
   - **Priority:** P0
 
-- [ ] 1.3 Implement workspace identity middleware
+- [x] 1.3 Implement workspace identity middleware
   - Mint `secrets.token_urlsafe(32)` on first visit; store only `sha256(token)`; set an `HttpOnly; Secure; SameSite=Strict; Path=/` cookie; resolve `workspace_id` server-side; provide no token-bearing recovery URL.
   - **Learn:** cookie-based anonymous identity with hash-only server storage.
   - **Dependencies:** 1.2

@@ -31,3 +31,19 @@ STORAGE_ROOT: str = os.environ.get(
 def is_sqlite(url: str | None = None) -> bool:
     """Return True if the given (or configured) database URL targets SQLite."""
     return (url or DATABASE_URL).startswith("sqlite")
+
+
+# ---- Workspace identity cookie (Task 1.3) ----
+# Name of the cookie carrying the raw Workspace Identifier token.
+WORKSPACE_COOKIE_NAME: str = os.environ.get("WORKSPACE_COOKIE_NAME", "sg_workspace")
+
+# `Secure` flag for the workspace cookie. Defaults to True (production, same-origin
+# HTTPS per the architecture steering). Set COOKIE_SECURE=0 ONLY for local HTTP
+# development, where a Secure cookie would not be returned by the browser.
+COOKIE_SECURE: bool = os.environ.get("COOKIE_SECURE", "1") != "0"
+
+# Cookie max-age in seconds (~180 days). The workspace is tied to this cookie;
+# there is intentionally no token-bearing recovery URL (design CORRECTION 1).
+WORKSPACE_COOKIE_MAX_AGE: int = int(
+    os.environ.get("WORKSPACE_COOKIE_MAX_AGE", str(180 * 24 * 60 * 60))
+)

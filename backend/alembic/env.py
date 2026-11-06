@@ -22,8 +22,28 @@ from app.db.base import Base  # noqa: E402
 from app.db import models  # noqa: E402,F401  (registers mappers)
 
 config = context.config
-# Inject the env-based URL at runtime (alembic.ini carries no real URL/secret).
-config.set_main_option("sqlalchemy.url", app_config.DATABASE_URL)
+
+
+def _resolve_url() -> str:
+    """Resolve the database URL with correct precedence (no hardcoded secret).
+
+    1. A URL explicitly set on the Alembic config by the caller
+       (e.g. tests via `cfg.set_main_option("sqlalchemy.url", ...)`).
+    2. Otherwise the live `DATABASE_URL` environment variable.
+    3. Otherwise the app's configured default (import-time constant).
+    """
+    import os
+
+    caller_url = config.get_main_option("sqlalchemy.url")
+    if caller_url:
+        return caller_url
+    return os.environ.get("DATABASE_URL", app_config.DATABASE_URL)
+
+
+_DB_URL = _resolve_url()
+# Make the resolved URL the effective one for Alembic (alembic.ini carries no
+# real URL/secret).
+config.set_main_option("sqlalchemy.url", _DB_URL)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
@@ -32,12 +52,12 @@ target_metadata = Base.metadata
 
 
 def _is_sqlite() -> bool:
-    return app_config.DATABASE_URL.startswith("sqlite")
+    return _DB_URL.startswith("sqlite")
 
 
 def run_migrations_offline() -> None:
     context.configure(
-        url=app_config.DATABASE_URL,
+        url=_DB_URL,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
