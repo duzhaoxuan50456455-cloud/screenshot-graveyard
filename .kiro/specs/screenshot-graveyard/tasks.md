@@ -135,7 +135,7 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** a migration test creates the schema from zero and asserts each table, each UNIQUE constraint, and each `workspace_id` index exists.
   - **Priority:** P0
 
-- [ ] 1.2 Implement the workspace-scoped repository layer
+- [x] 1.2 Implement the workspace-scoped repository layer
   - Add repository methods for every table; every method requires an explicit `workspace_id` argument with no unscoped query path.
   - **Dependencies:** 1.1
   - **Requirements:** 12.6, 9.9, 9.10
