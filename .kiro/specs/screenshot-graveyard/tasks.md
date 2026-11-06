@@ -150,7 +150,7 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** middleware tests assert the token is 32-byte url-safe, only the hash is persisted, lookup is by hash, the cookie flags are set, and no path/body workspace id is honored.
   - **Priority:** P0
 
-- [ ] 1.4 Implement three-layer CSRF/Origin middleware
+- [x] 1.4 Implement three-layer CSRF/Origin middleware
   - Enforce `SameSite=Strict` cookie + server-side Origin/Referer check + required `X-Requested-With` header on state-changing methods; return `403` on violation.
   - **Dependencies:** 1.3
   - **Requirements:** 9.9

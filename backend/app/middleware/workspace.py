@@ -60,6 +60,11 @@ class WorkspaceMiddleware(BaseHTTPMiddleware):
 
         workspace_id: int | None = None
         new_token: str | None = None
+        # Distinguishes "trusted identity resolution failed (DB outage)" from
+        # "no/invalid identity". Private or state-changing endpoints MUST fail
+        # closed when this is True rather than proceeding as an anonymous
+        # visitor (enforced per-endpoint in later tasks).
+        identity_unavailable = False
 
         session = self._new_session()
         try:
@@ -69,17 +74,20 @@ class WorkspaceMiddleware(BaseHTTPMiddleware):
                     workspace_id, new_token = create_workspace(session)
                     session.commit()
             except SQLAlchemyError:
-                # Never let an identity-layer DB error 500 an unrelated request;
-                # degrade to "no workspace". (A real endpoint that needs a
-                # workspace will handle its absence explicitly in later tasks.)
+                # A DB error during identity resolution is NOT the same as an
+                # invalid credential. We do not 500 unrelated requests (health,
+                # SPA, safe reads keep working), but we flag that identity could
+                # not be trusted so sensitive endpoints can fail closed.
                 session.rollback()
                 workspace_id = None
                 new_token = None
+                identity_unavailable = True
         finally:
             session.close()
 
         # Single source of truth for downstream code; never from path/body.
         request.state.workspace_id = workspace_id
+        request.state.identity_unavailable = identity_unavailable
 
         response: Response = await call_next(request)
 

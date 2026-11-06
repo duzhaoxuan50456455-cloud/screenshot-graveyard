@@ -47,3 +47,47 @@ COOKIE_SECURE: bool = os.environ.get("COOKIE_SECURE", "1") != "0"
 WORKSPACE_COOKIE_MAX_AGE: int = int(
     os.environ.get("WORKSPACE_COOKIE_MAX_AGE", str(180 * 24 * 60 * 60))
 )
+
+
+# ---- CSRF / Origin protection (Task 1.4) ----
+# APP_ENV selects development vs production behavior for origin configuration.
+# In production, TRUSTED_ORIGINS MUST be set explicitly; the app refuses to fall
+# back to the insecure localhost development defaults (fail fast at startup).
+APP_ENV: str = os.environ.get("APP_ENV", "development").strip().lower()
+
+# Dev-only default trusted origins (localhost same-origin). NEVER used in prod.
+_DEV_DEFAULT_ORIGINS = (
+    "http://localhost:5173,http://127.0.0.1:5173,"
+    "http://localhost:8000,http://127.0.0.1:8000"
+)
+
+
+def _parse_origins(raw: str) -> tuple[str, ...]:
+    # Normalize to lowercase scheme://host[:port], strip trailing slash. Exact
+    # matching only — no wildcard, no subdomain/prefix matching.
+    return tuple(o.strip().rstrip("/").lower() for o in raw.split(",") if o.strip())
+
+
+def _resolve_trusted_origins() -> tuple[str, ...]:
+    raw = os.environ.get("TRUSTED_ORIGINS")
+    if raw is None or not raw.strip():
+        if APP_ENV == "production":
+            raise RuntimeError(
+                "TRUSTED_ORIGINS must be set explicitly in production (APP_ENV="
+                "production). Refusing to fall back to insecure localhost "
+                "development defaults."
+            )
+        raw = _DEV_DEFAULT_ORIGINS
+    origins = _parse_origins(raw)
+    # Defense in depth: never allow a wildcard entry.
+    if any(o == "*" or "*" in o for o in origins):
+        raise RuntimeError("TRUSTED_ORIGINS must not contain a wildcard.")
+    return origins
+
+
+TRUSTED_ORIGINS: tuple[str, ...] = _resolve_trusted_origins()
+
+# Required custom header on state-changing requests. Browsers forbid setting
+# custom headers on simple cross-site form submissions, so a cross-site attacker
+# cannot forge it. Value is checked for presence only (any non-empty value).
+CSRF_HEADER_NAME: str = os.environ.get("CSRF_HEADER_NAME", "X-Requested-With")

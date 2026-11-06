@@ -23,6 +23,7 @@ from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.middleware.csrf import CSRFMiddleware
 from app.middleware.workspace import WorkspaceMiddleware
 
 APP_TITLE = "Screenshot Graveyard API"
@@ -101,6 +102,11 @@ def create_app(workspace_session_factory=None) -> FastAPI:
     application.add_middleware(
         WorkspaceMiddleware, session_factory=workspace_session_factory
     )
+
+    # CSRF/Origin protection. Added AFTER WorkspaceMiddleware so it is the
+    # OUTERMOST middleware and runs FIRST on the request path: a rejected
+    # state-changing request never reaches workspace minting or any DB mutation.
+    application.add_middleware(CSRFMiddleware)
 
     # Register the API first so real API routes always win over the SPA.
     application.include_router(_build_api_router())
