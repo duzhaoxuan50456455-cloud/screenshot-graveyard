@@ -91,3 +91,30 @@ TRUSTED_ORIGINS: tuple[str, ...] = _resolve_trusted_origins()
 # custom headers on simple cross-site form submissions, so a cross-site attacker
 # cannot forge it. Value is checked for presence only (any non-empty value).
 CSRF_HEADER_NAME: str = os.environ.get("CSRF_HEADER_NAME", "X-Requested-With")
+
+
+# ---- Rate limiting, size, and quota gates (Task 1.5) ----
+# All in-process (no distributed limiter); values are env-overridable defaults,
+# chosen conservatively for a solo-dev public hobby deployment. They are NOT
+# shared across workers/instances (see RateLimiter docstring).
+
+# Token-bucket rate limit per workspace: capacity (burst) and refill rate.
+RATE_LIMIT_CAPACITY: int = int(os.environ.get("RATE_LIMIT_CAPACITY", "60"))
+RATE_LIMIT_REFILL_PER_SEC: float = float(
+    os.environ.get("RATE_LIMIT_REFILL_PER_SEC", "1.0")
+)
+
+# Maximum accepted request payload size in bytes (15 MB per file, Req 1.5 / A5).
+# Applied as a request-body cap; per-file validation also enforces 15 MB later.
+MAX_UPLOAD_BYTES: int = int(os.environ.get("MAX_UPLOAD_BYTES", str(15 * 1024 * 1024)))
+
+# Maximum number of files accepted in a single upload batch.
+MAX_FILES_PER_BATCH: int = int(os.environ.get("MAX_FILES_PER_BATCH", "20"))
+
+# Per-workspace DB quota counters.
+MAX_SCREENSHOTS_PER_WORKSPACE: int = int(
+    os.environ.get("MAX_SCREENSHOTS_PER_WORKSPACE", "500")
+)
+MAX_AI_CALLS_PER_WORKSPACE: int = int(
+    os.environ.get("MAX_AI_CALLS_PER_WORKSPACE", "1000")
+)

@@ -157,7 +157,7 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** router tests assert a state-changing request with a foreign `Origin` or missing custom header is rejected with `403`, and a same-origin request with the header passes.
   - **Priority:** P0
 
-- [ ] 1.5 Implement the in-process rate limiter and size/quota gates
+- [x] 1.5 Implement the in-process rate limiter and size/quota gates
   - Add a per-workspace token-bucket limiter, per-workspace DB quota counters, a max-files-per-batch cap, and a payload size gate enforced **before** buffering the whole body.
   - **Dependencies:** 1.3
   - **Requirements:** 1.5 (size gate), 15.* (public-deployment protection)

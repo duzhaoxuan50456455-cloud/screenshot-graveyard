@@ -24,6 +24,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.middleware.csrf import CSRFMiddleware
+from app.middleware.limits import RateLimitMiddleware, WorkspaceRateLimitMiddleware
 from app.middleware.workspace import WorkspaceMiddleware
 
 APP_TITLE = "Screenshot Graveyard API"
@@ -89,7 +90,11 @@ def _mount_spa(application: FastAPI, dist_dir: Path) -> None:
         return FileResponse(index_file)
 
 
-def create_app(workspace_session_factory=None) -> FastAPI:
+def create_app(
+    workspace_session_factory=None,
+    rate_limiter=None,
+    workspace_rate_limiter=None,
+) -> FastAPI:
     """Build and return a configured FastAPI application instance.
 
     Returns:
@@ -98,14 +103,31 @@ def create_app(workspace_session_factory=None) -> FastAPI:
     """
     application = FastAPI(title=APP_TITLE, version=APP_VERSION)
 
+    # Middleware is added inner-to-outer; on the request path it runs in REVERSE
+    # add order. Target request-path order:
+    #   CSRF -> IP rate limit (stage 1) -> workspace identity
+    #        -> per-workspace rate limit (stage 2) -> route
+    #
+    # Stage 2 (per-workspace) is added FIRST so it runs LAST (after identity is
+    # resolved and attached to request.state).
+    application.add_middleware(
+        WorkspaceRateLimitMiddleware, limiter=workspace_rate_limiter
+    )
+
     # Resolve/mint the trusted workspace identity from the httpOnly cookie.
     application.add_middleware(
         WorkspaceMiddleware, session_factory=workspace_session_factory
     )
 
-    # CSRF/Origin protection. Added AFTER WorkspaceMiddleware so it is the
-    # OUTERMOST middleware and runs FIRST on the request path: a rejected
-    # state-changing request never reaches workspace minting or any DB mutation.
+    # Stage 1: IP-keyed rate limit + payload-size gate. Runs OUTER to identity,
+    # so anonymous floods and oversized requests are rejected (429/413) BEFORE
+    # any workspace minting or body buffering; needs no DB, so a DB identity
+    # failure cannot disable it.
+    application.add_middleware(RateLimitMiddleware, limiter=rate_limiter)
+
+    # CSRF/Origin protection. Added LAST so it is the OUTERMOST middleware and
+    # runs FIRST: an obviously forged state-changing request is rejected before
+    # rate-limiting, minting, or any DB mutation.
     application.add_middleware(CSRFMiddleware)
 
     # Register the API first so real API routes always win over the SPA.

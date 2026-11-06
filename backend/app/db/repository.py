@@ -32,6 +32,19 @@ from sqlalchemy.orm import Session
 from app.db import models
 
 
+class QuotaExceededError(Exception):
+    """Raised when a per-workspace quota would be exceeded.
+
+    The message is generic and never includes other workspaces' data; the
+    `limit` and `kind` describe which quota was hit for a safe, helpful error.
+    """
+
+    def __init__(self, kind: str, limit: int) -> None:
+        self.kind = kind
+        self.limit = limit
+        super().__init__(f"{kind} quota exceeded (limit {limit})")
+
+
 class CrossWorkspaceError(Exception):
     """Raised when an operation would read or link data across workspaces.
 
@@ -314,3 +327,39 @@ class WorkspaceRepository:
         op.updated_at = _utcnow()
         self._session.flush()
         return op
+
+    # ------------------------------- quotas ----------------------------------
+
+    def count_screenshots(self) -> int:
+        """Number of screenshots owned by this workspace (quota counter)."""
+        from sqlalchemy import func
+
+        stmt = select(func.count()).select_from(models.Screenshot).where(
+            models.Screenshot.workspace_id == self._workspace_id
+        )
+        return int(self._session.scalar(stmt) or 0)
+
+    def count_ai_operations(self) -> int:
+        """Number of AI operations (classify/study_note/redo) for this workspace.
+
+        Counts the operation rows that represent metered AI calls, used to
+        enforce the per-workspace AI-call quota.
+        """
+        from sqlalchemy import func
+
+        ai_kinds = ("classify", "study_note", "redo")
+        stmt = select(func.count()).select_from(models.Operation).where(
+            models.Operation.workspace_id == self._workspace_id,
+            models.Operation.kind.in_(ai_kinds),
+        )
+        return int(self._session.scalar(stmt) or 0)
+
+    def ensure_screenshot_quota(self, limit: int, adding: int = 1) -> None:
+        """Raise QuotaExceededError if adding `adding` screenshots exceeds limit."""
+        if self.count_screenshots() + adding > limit:
+            raise QuotaExceededError("screenshot", limit)
+
+    def ensure_ai_quota(self, limit: int, adding: int = 1) -> None:
+        """Raise QuotaExceededError if adding `adding` AI calls exceeds limit."""
+        if self.count_ai_operations() + adding > limit:
+            raise QuotaExceededError("ai_call", limit)
