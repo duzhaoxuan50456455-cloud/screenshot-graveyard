@@ -207,7 +207,7 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** router tests assert an owner read returns bytes `200`, a foreign-workspace read returns `404`, and no public/static path serves the bytes.
   - **Priority:** P0
 
-- [ ] 1.12 Build the early Halloween UI foundation
+- [x] 1.12 Build the early Halloween UI foundation
   - Scaffold Ghost (pending) and Crypt (archived) views mapped to real state, plus a duplicate indicator, on top of the upload/archive flows.
   - **Dependencies:** 1.9, 1.10, 1.11
   - **Requirements:** 10.1, 10.2, 2.5, 10.6

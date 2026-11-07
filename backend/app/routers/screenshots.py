@@ -29,6 +29,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Request, Response, UploadFile, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from sqlalchemy.exc import SQLAlchemyError
 
 from app import config
 from app.db.session import get_session
@@ -36,6 +37,7 @@ from app.middleware.limits import BatchTooLargeError, enforce_max_files_per_batc
 from app.db.repository import QuotaExceededError
 from app.services.vault_service import (
     ScreenshotNotFoundError,
+    ScreenshotInfo,
     VaultService,
     VaultServiceError,
 )
@@ -227,5 +229,111 @@ def build_screenshots_router() -> APIRouter:
             media_type=original.mime_type,
             headers={"Cache-Control": "private, no-store"},
         )
+
+
+    def _resolved_workspace_or_response(request: Request):
+        """Return (workspace_id, None) or (None, JSONResponse) failing closed."""
+        if getattr(request.state, "identity_unavailable", False):
+            return None, JSONResponse(
+                status_code=503,
+                content=_error_body("identity_unavailable", "Service temporarily unavailable"),
+            )
+        workspace_id = getattr(request.state, "workspace_id", None)
+        if workspace_id is None:
+            return None, JSONResponse(
+                status_code=401, content=_error_body("no_workspace", "No workspace")
+            )
+        return workspace_id, None
+
+    def _info_dict(info: ScreenshotInfo) -> dict:
+        return {
+            "screenshotId": info.screenshot_id,
+            "state": info.state,
+            "mimeType": info.mime_type,
+            "originalFilename": info.original_filename,
+            "isDuplicate": info.is_duplicate,
+            "duplicateOf": info.duplicate_of,
+            "byteSize": info.byte_size,
+            "uploadedAt": info.uploaded_at,
+        }
+
+    @router.get("", response_model=None)
+    def list_screenshots(request: Request, state: str | None = None):
+        """List this workspace's screenshots (safe metadata only).
+
+        Workspace-scoped; a client cannot enumerate another workspace. Optional
+        ``?state=active|archived`` filter. Pure read — mutates nothing.
+        """
+        workspace_id, err = _resolved_workspace_or_response(request)
+        if err is not None:
+            return err
+        if state is not None and state not in ("active", "archived"):
+            return JSONResponse(status_code=400, content=_error_body("bad_state", "Invalid state"))
+        session = get_session()
+        try:
+            vault = VaultService(session, workspace_id)
+            try:
+                infos = vault.list_screenshots(state=state)
+            except SQLAlchemyError:
+                return JSONResponse(
+                    status_code=503,
+                    content=_error_body("service_unavailable", "Service temporarily unavailable"),
+                )
+        finally:
+            session.close()
+        return {"screenshots": [_info_dict(i) for i in infos]}
+
+    @router.post("/{screenshot_id}/archive", response_model=None)
+    def archive_screenshot(request: Request, screenshot_id: int):
+        """Safe Burial: archive an owned screenshot (state-changing; CSRF-guarded)."""
+        workspace_id, err = _resolved_workspace_or_response(request)
+        if err is not None:
+            return err
+        session = get_session()
+        try:
+            vault = VaultService(session, workspace_id)
+            try:
+                result = vault.archive(screenshot_id)
+            except ScreenshotNotFoundError:
+                return JSONResponse(status_code=404, content=_error_body("not_found", "Not Found"))
+            except SQLAlchemyError:
+                return JSONResponse(
+                    status_code=503,
+                    content=_error_body("service_unavailable", "Service temporarily unavailable"),
+                )
+            except VaultServiceError:
+                return JSONResponse(status_code=404, content=_error_body("not_found", "Not Found"))
+        finally:
+            session.close()
+        return {"screenshotId": result.screenshot_id, "status": result.status, "state": result.state}
+
+    @router.post("/{screenshot_id}/restore", response_model=None)
+    def restore_screenshot(request: Request, screenshot_id: int):
+        """Resurrection: restore an owned screenshot with SHA-256 verification.
+
+        On an integrity mismatch the service returns status="failed" and the
+        screenshot stays archived — we return 200 with that honest result (NOT a
+        false success state of 'active').
+        """
+        workspace_id, err = _resolved_workspace_or_response(request)
+        if err is not None:
+            return err
+        session = get_session()
+        try:
+            vault = VaultService(session, workspace_id)
+            try:
+                result = vault.restore(screenshot_id)
+            except ScreenshotNotFoundError:
+                return JSONResponse(status_code=404, content=_error_body("not_found", "Not Found"))
+            except SQLAlchemyError:
+                return JSONResponse(
+                    status_code=503,
+                    content=_error_body("service_unavailable", "Service temporarily unavailable"),
+                )
+            except VaultServiceError:
+                return JSONResponse(status_code=404, content=_error_body("not_found", "Not Found"))
+        finally:
+            session.close()
+        return {"screenshotId": result.screenshot_id, "status": result.status, "state": result.state}
 
     return router

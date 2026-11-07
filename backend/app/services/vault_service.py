@@ -77,6 +77,20 @@ class OriginalImage:
     byte_size: int
 
 
+@dataclass(frozen=True)
+class ScreenshotInfo:
+    """Safe, user-facing metadata for one screenshot (no storage path/token)."""
+
+    screenshot_id: int
+    state: str
+    mime_type: str
+    original_filename: str
+    is_duplicate: bool
+    duplicate_of: int | None
+    byte_size: int
+    uploaded_at: str
+
+
 class ScreenshotNotFoundError(Exception):
     """Raised when a screenshot is absent OR owned by another workspace.
 
@@ -386,3 +400,30 @@ class VaultService:
             sha256=blob.sha256,
             byte_size=blob.byte_size,
         )
+
+    # --------------------------------------------------------------- listing
+
+    def list_screenshots(self, state: str | None = None) -> list[ScreenshotInfo]:
+        """Return safe metadata for this workspace's screenshots.
+
+        Workspace-scoped via the repository. Exposes only user-facing fields —
+        never the storage path, workspace id/token, or other internals. `state`
+        optionally filters to "active" or "archived".
+        """
+        rows = self._repo.list_screenshots(state=state)
+        infos: list[ScreenshotInfo] = []
+        for shot in rows:
+            blob = self._repo.get_content_blob(shot.content_blob_id)
+            infos.append(
+                ScreenshotInfo(
+                    screenshot_id=shot.id,
+                    state=shot.state,
+                    mime_type=(blob.mime_type if blob is not None else "application/octet-stream"),
+                    original_filename=shot.original_filename or "",
+                    is_duplicate=shot.is_duplicate_of is not None,
+                    duplicate_of=shot.is_duplicate_of,
+                    byte_size=(blob.byte_size if blob is not None else 0),
+                    uploaded_at=shot.uploaded_at.isoformat() if shot.uploaded_at else "",
+                )
+            )
+        return infos
