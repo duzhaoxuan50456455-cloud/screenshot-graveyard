@@ -214,7 +214,7 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** Vitest tests assert the Ghost renders for pending screenshots, the Crypt lists archived screenshots, and the duplicate indicator renders for a duplicate record.
   - **Priority:** P0
 
-- [ ] 1.13 Write the PBT-STORAGE module (REQUIRED)
+- [x] 1.13 Write the PBT-STORAGE module (REQUIRED)
   - Implement Properties P1, P3, P4, P5, P6, P9, P10, P11 with Hypothesis ≥100 iterations, each tagged with its property line. *(CORRECTION 3 — REQUIRED, non-optional: covers source immutability P1.)*
   - **Dependencies:** 1.6, 1.7, 1.8
   - **Requirements:** 1.2, 1.3, 1.4, 1.5, 2.1, 2.2, 2.4, INV-1, INV-3, INV-10, P1, P3, P4, P5, P6, P9, P10, P11
