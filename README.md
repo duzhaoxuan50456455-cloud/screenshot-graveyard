@@ -61,8 +61,13 @@ From `backend/`:
 
 1. Create a virtual environment: `python3 -m venv .venv`
 2. Install pinned dependencies: `.venv/bin/pip install -r requirements.txt`
-3. Launch the ASGI app `app.main:app` with uvicorn (dev mode uses `--reload`),
-   binding to localhost port 8000. See `backend/README.md` for the exact command.
+3. Apply the schema before the first launch: `.venv/bin/alembic upgrade head`
+4. Launch the ASGI app with a local-development cookie setting:
+   `COOKIE_SECURE=0 .venv/bin/uvicorn app.main:app --reload --host 127.0.0.1 --port 8000`
+
+`COOKIE_SECURE=0` is required only for local HTTP development. Production keeps
+the default secure, HTTPS-only workspace cookie. The Vite `/api` proxy preserves
+the browser's same-origin `localhost:5173` cookie contract.
 
 ### Frontend
 

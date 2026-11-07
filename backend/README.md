@@ -9,8 +9,16 @@ FastAPI backend for Screenshot Graveyard.
 
 ## Run
 
-Launch the ASGI app `app.main:app` with uvicorn (dev mode uses auto-reload).
-See the project docs for the exact local launch invocation.
+From `backend/`, apply the Alembic schema before the first launch, then run the
+ASGI app with a non-secure cookie for local HTTP development:
+
+```sh
+.venv/bin/alembic upgrade head
+COOKIE_SECURE=0 .venv/bin/uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+The default cookie remains `Secure` for production HTTPS. Do not set
+`COOKIE_SECURE=0` in production.
 
 ## Test
 

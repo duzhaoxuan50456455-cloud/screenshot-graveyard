@@ -50,8 +50,8 @@ def _build_api_router() -> APIRouter:
         """Liveness check. No auth, no database dependency."""
         return {"status": "ok"}
 
-    @router.get("/workspace")
-    def workspace(request: Request) -> dict[str, bool]:
+    @router.get("/workspace", response_model=None)
+    def workspace(request: Request) -> dict[str, bool] | JSONResponse:
         """Bootstrap/confirm the visitor's Workspace.
 
         The WorkspaceMiddleware has already resolved (or minted) the trusted
@@ -59,6 +59,19 @@ def _build_api_router() -> APIRouter:
         non-sensitive confirmation only — it NEVER returns the raw token or the
         workspace id, so nothing identity-bearing leaks into the response body.
         """
+        # A failed database lookup/mint is not the same as an anonymous visitor.
+        # The frontend must not interpret an unavailable identity store as a
+        # valid-but-inactive workspace and retry forever.
+        if getattr(request.state, "identity_unavailable", False):
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "error": {
+                        "code": "identity_unavailable",
+                        "message": "Service temporarily unavailable",
+                    }
+                },
+            )
         return {"workspaceActive": getattr(request.state, "workspace_id", None) is not None}
 
     return router

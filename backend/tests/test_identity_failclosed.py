@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.exc import OperationalError
 
 from app import config
+from app.main import create_app
 from app.middleware.workspace import WorkspaceMiddleware
 
 
@@ -81,3 +82,18 @@ def test_health_still_ok_during_db_outage(app):
     r = TestClient(app).get("/api/health")
     assert r.status_code == 200
     assert r.json() == {"status": "ok"}
+
+
+def test_workspace_bootstrap_fails_closed_when_schema_is_unavailable():
+    """A first-time visitor must not receive a misleading 200/inactive state
+    when the identity database cannot create its workspace."""
+    app = create_app(workspace_session_factory=lambda: _BrokenSession())
+    r = TestClient(app).get("/api/workspace")
+    assert r.status_code == 503
+    assert r.json() == {
+        "error": {
+            "code": "identity_unavailable",
+            "message": "Service temporarily unavailable",
+        }
+    }
+    assert "set-cookie" not in {key.lower() for key in r.headers}
