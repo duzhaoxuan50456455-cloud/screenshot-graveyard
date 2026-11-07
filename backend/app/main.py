@@ -24,7 +24,11 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.middleware.csrf import CSRFMiddleware
-from app.middleware.limits import RateLimitMiddleware, WorkspaceRateLimitMiddleware
+from app.middleware.limits import (
+    MaxBodySizeMiddleware,
+    RateLimitMiddleware,
+    WorkspaceRateLimitMiddleware,
+)
 from app.middleware.workspace import WorkspaceMiddleware
 
 APP_TITLE = "Screenshot Graveyard API"
@@ -94,6 +98,7 @@ def create_app(
     workspace_session_factory=None,
     rate_limiter=None,
     workspace_rate_limiter=None,
+    max_request_bytes=None,
 ) -> FastAPI:
     """Build and return a configured FastAPI application instance.
 
@@ -125,13 +130,18 @@ def create_app(
     # failure cannot disable it.
     application.add_middleware(RateLimitMiddleware, limiter=rate_limiter)
 
-    # CSRF/Origin protection. Added LAST so it is the OUTERMOST middleware and
-    # runs FIRST: an obviously forged state-changing request is rejected before
-    # rate-limiting, minting, or any DB mutation.
+    # CSRF/Origin protection.
     application.add_middleware(CSRFMiddleware)
+
+    # Aggregate request-body byte cap at the ASGI receive layer. Added LAST so
+    # it is the OUTERMOST middleware and bounds ACTUAL received bytes before any
+    # buffering/parsing/CSRF — even with missing/false/chunked Content-Length.
+    application.add_middleware(MaxBodySizeMiddleware, max_bytes=max_request_bytes)
 
     # Register the API first so real API routes always win over the SPA.
     application.include_router(_build_api_router())
+    from app.routers.screenshots import build_screenshots_router
+    application.include_router(build_screenshots_router())
 
     # Explicit guard: any unmatched /api path returns a JSON API error, never
     # the SPA. Registered before the SPA catch-all so it takes precedence for

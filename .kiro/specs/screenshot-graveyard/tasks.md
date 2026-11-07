@@ -186,7 +186,7 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** service tests assert one `content_blob` per identical content with a distinct `screenshot` per upload, persisted checksum equals the content hash, and duplicates are flagged.
   - **Priority:** P0
 
-- [ ] 1.9 Implement the upload router with mixed-batch partial success
+- [x] 1.9 Implement the upload router with mixed-batch partial success
   - Accept multiple files; store valid ones; report per-file errors for invalid ones; return `207 Multi-Status` for mixed batches without aborting.
   - **Dependencies:** 1.8, 1.4, 1.5
   - **Requirements:** 1.1, 1.6, P7

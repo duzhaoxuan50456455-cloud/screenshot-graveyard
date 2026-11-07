@@ -69,7 +69,7 @@ def test_window_reset_allows_again(ctx):
 
 def test_oversized_content_length_rejected_413_no_mint(ctx):
     c, eng, _ = ctx
-    big = str(config.MAX_UPLOAD_BYTES + 1)
+    big = str(config.MAX_REQUEST_BYTES + 1)
     # Use /api/workspace (a mint path) to also assert no workspace is created.
     r = c.get("/api/workspace", headers={"Content-Length": big})
     assert r.status_code == 413
@@ -212,5 +212,9 @@ def test_invalid_content_length_passes_gate_documented(ctx):
 
 def test_oversized_content_length_still_blocked_early(ctx):
     c, _, _ = ctx
-    r = c.get("/api/health", headers={"Content-Length": str(config.MAX_UPLOAD_BYTES + 1)})
+    # The early Content-Length gate now rejects against the AGGREGATE request cap
+    # (MAX_REQUEST_BYTES), not the per-file cap, so a multi-file batch under the
+    # per-file cap is not wrongly rejected. A declared size over the request cap
+    # is still blocked early with 413.
+    r = c.get("/api/health", headers={"Content-Length": str(config.MAX_REQUEST_BYTES + 1)})
     assert r.status_code == 413

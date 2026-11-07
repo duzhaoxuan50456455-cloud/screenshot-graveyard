@@ -31,6 +31,7 @@ pydantic_core==2.50.2
 Pygments==2.21.0
 pytest==9.2.0
 python-dotenv==1.2.4
+python-multipart==0.0.20
 PyYAML==6.0.3
 sortedcontainers==2.4.0
 SQLAlchemy==2.1.8

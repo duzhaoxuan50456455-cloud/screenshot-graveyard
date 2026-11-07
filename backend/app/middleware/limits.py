@@ -82,18 +82,21 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if not path.startswith(_SAFE_PREFIX):
             return await call_next(request)
 
-        # --- Payload size gate (before reading the body) ---
+        # --- Aggregate request-body size gate (early Content-Length reject) ---
+        # Compares the DECLARED Content-Length against the whole-request cap
+        # (MAX_REQUEST_BYTES), NOT the per-file cap: a valid multi-file batch may
+        # legitimately exceed the per-file 15 MB limit in total. This is only an
+        # early optimization; the authoritative actual-byte aggregate limit is
+        # enforced by MaxBodySizeMiddleware (handles missing/false/chunked CL),
+        # and the per-file 15 MB cap is enforced per image by the validator.
         content_length = request.headers.get("content-length")
         if content_length is not None:
             try:
                 declared = int(content_length)
             except ValueError:
                 declared = None
-            if declared is not None and declared > config.MAX_UPLOAD_BYTES:
+            if declared is not None and declared > config.MAX_REQUEST_BYTES:
                 return JSONResponse(status_code=413, content=_TOO_LARGE)
-        # NOTE: missing/invalid Content-Length (incl. chunked encoding) is NOT
-        # rejected here. Authoritative streaming size enforcement is OUTSTANDING
-        # and owned by the upload endpoint (Task 1.7/1.8). See module docstring.
 
         # --- Rate limit (keyed by client IP; no DB dependency) ---
         if not self._limiter.allow(self._client_key(request)):
@@ -157,3 +160,68 @@ def enforce_max_files_per_batch(count: int, limit: int | None = None) -> None:
     cap = config.MAX_FILES_PER_BATCH if limit is None else limit
     if count > cap:
         raise BatchTooLargeError(count, cap)
+
+
+class MaxBodySizeMiddleware:
+    """Bound the ACTUAL number of request-body bytes received (ASGI level).
+
+    Wraps the ASGI ``receive`` callable and counts bytes as they arrive. Once the
+    running total exceeds MAX_REQUEST_BYTES, the middleware sends a 413 response
+    itself and feeds the downstream app an ``http.disconnect`` so it stops
+    reading — the app's own (late) response is then suppressed. This bounds
+    parsing/spooling even when Content-Length is ABSENT, FALSE, or the request
+    uses chunked transfer encoding, because the limit is on real received bytes.
+
+    Smallest safe receive-layer guard: no custom multipart parser, no change to
+    other request handling. Only ``http`` requests under the API prefix are
+    guarded; everything else passes straight through.
+    """
+
+    def __init__(self, app, max_bytes: int | None = None) -> None:
+        self.app = app
+        self._max_bytes = max_bytes
+
+    @property
+    def max_bytes(self) -> int:
+        return self._max_bytes if self._max_bytes is not None else config.MAX_REQUEST_BYTES
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") != "http" or not scope.get("path", "").startswith(_SAFE_PREFIX):
+            await self.app(scope, receive, send)
+            return
+
+        import json
+
+        max_bytes = self.max_bytes
+        state = {"received": 0, "exceeded": False, "we_responded": False}
+
+        async def bounded_receive():
+            # Once over the limit, tell the app the client disconnected so it
+            # stops trying to read the (rejected) body.
+            if state["exceeded"]:
+                return {"type": "http.disconnect"}
+            message = await receive()
+            if message.get("type") == "http.request":
+                state["received"] += len(message.get("body", b""))
+                if state["received"] > max_bytes:
+                    state["exceeded"] = True
+                    if not state["we_responded"]:
+                        state["we_responded"] = True
+                        body = json.dumps(_TOO_LARGE).encode()
+                        await send({
+                            "type": "http.response.start",
+                            "status": 413,
+                            "headers": [(b"content-type", b"application/json")],
+                        })
+                        await send({"type": "http.response.body", "body": body})
+                    return {"type": "http.disconnect"}
+            return message
+
+        async def guarded_send(message):
+            # Suppress the app's response once we've sent our own 413.
+            if state["we_responded"]:
+                return
+            await send(message)
+
+        await self.app(scope, bounded_receive, guarded_send)
+

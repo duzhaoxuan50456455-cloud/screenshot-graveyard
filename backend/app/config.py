@@ -111,6 +111,19 @@ MAX_UPLOAD_BYTES: int = int(os.environ.get("MAX_UPLOAD_BYTES", str(15 * 1024 * 1
 # Maximum number of files accepted in a single upload batch.
 MAX_FILES_PER_BATCH: int = int(os.environ.get("MAX_FILES_PER_BATCH", "20"))
 
+# Aggregate maximum size of an ENTIRE request body (all multipart parts +
+# envelope), distinct from the per-file 15 MB cap. Sized for a full batch:
+# MAX_FILES_PER_BATCH * MAX_UPLOAD_BYTES plus a margin for multipart boundaries
+# and headers. This bounds parsing/spooling even when Content-Length is absent,
+# false, or the request is chunked. Enforced on ACTUAL bytes received.
+_MULTIPART_OVERHEAD_MARGIN = 1 * 1024 * 1024  # 1 MB for boundaries/headers
+MAX_REQUEST_BYTES: int = int(
+    os.environ.get(
+        "MAX_REQUEST_BYTES",
+        str(MAX_FILES_PER_BATCH * MAX_UPLOAD_BYTES + _MULTIPART_OVERHEAD_MARGIN),
+    )
+)
+
 # Per-workspace DB quota counters.
 MAX_SCREENSHOTS_PER_WORKSPACE: int = int(
     os.environ.get("MAX_SCREENSHOTS_PER_WORKSPACE", "500")
