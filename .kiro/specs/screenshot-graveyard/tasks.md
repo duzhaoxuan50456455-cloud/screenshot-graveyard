@@ -193,7 +193,7 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** router test uploads a mixed batch and asserts `207`, valid files stored, each invalid file reported by name.
   - **Priority:** P0
 
-- [ ] 1.10 Implement Archive (Safe Burial) and Restore (Resurrection) with SHA-256 verification
+- [x] 1.10 Implement Archive (Safe Burial) and Restore (Resurrection) with SHA-256 verification
   - Archive moves a screenshot to The Crypt retaining bytes + checksum; restore returns it to active and verifies SHA-256; on mismatch report `failed` and retain archived bytes; no delete path.
   - **Dependencies:** 1.8
   - **Requirements:** 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 2.6, INV-2, INV-3, INV-4, INV-10, P2

@@ -34,7 +34,10 @@ from sqlalchemy.orm import Session
 from app import config
 from app.db import models
 from app.db.repository import QuotaExceededError, WorkspaceRepository
-from app.storage.file_store import FileStore  # ONLY importer of the file store
+from app.storage.file_store import (  # ONLY importer of the file store
+    FileStore,
+    IntegrityError as FileStoreIntegrityError,
+)
 from app.upload_validation import UploadValidationError, validate_image_bytes
 
 
@@ -48,6 +51,28 @@ class UploadResult:
     width: int
     height: int
     byte_size: int
+
+
+@dataclass(frozen=True)
+class LifecycleResult:
+    """Outcome of an archive/restore operation.
+
+    `status` is "successful" or "failed" (restore integrity failure). `state`
+    is the screenshot's resulting logical state ("active" | "archived").
+    """
+
+    screenshot_id: int
+    status: str
+    state: str
+
+
+class ScreenshotNotFoundError(Exception):
+    """Raised when a screenshot is absent OR owned by another workspace.
+
+    The SAME error is used for both cases so a foreign-workspace screenshot is
+    never distinguished from a missing one (existence non-disclosure). Carries a
+    generic message only.
+    """
 
 
 class VaultServiceError(Exception):
@@ -215,3 +240,91 @@ class VaultService:
             .limit(1)
         )
         return self._session.scalars(stmt).first()
+
+    # --------------------------------------------------------------- lifecycle
+
+    _ACTIVE = "active"
+    _ARCHIVED = "archived"
+
+    def _owned_screenshot_or_raise(self, screenshot_id: int):
+        shot = self._repo.get_screenshot(screenshot_id)
+        if shot is None:
+            # Missing or foreign-workspace: identical generic error, no disclosure.
+            raise ScreenshotNotFoundError("screenshot not found")
+        return shot
+
+    def archive(self, screenshot_id: int) -> LifecycleResult:
+        """Safe Burial: move an active screenshot into The Crypt (archived).
+
+        Workspace-scoped. Idempotent: archiving an already-archived screenshot is
+        a no-op success. Never touches the content_blob, its bytes, or checksum.
+        Commits only after the state change; rolls back on any error.
+        """
+        shot = self._owned_screenshot_or_raise(screenshot_id)
+        try:
+            if shot.state != self._ARCHIVED:
+                self._repo.set_screenshot_state(screenshot_id, self._ARCHIVED)
+            self._session.commit()
+        except ScreenshotNotFoundError:
+            raise
+        except Exception as exc:
+            self._session.rollback()
+            raise VaultServiceError("failed to archive screenshot") from exc
+        return LifecycleResult(
+            screenshot_id=screenshot_id, status="successful", state=self._ARCHIVED
+        )
+
+    def restore(self, screenshot_id: int) -> LifecycleResult:
+        """Resurrection: return an archived screenshot to Active, verifying bytes.
+
+        Reads the original bytes via the write-once file store, recomputes the
+        SHA-256, and compares it to the stored content_blob checksum. Only on a
+        match is the screenshot marked Active and the change committed. On a
+        mismatch the restore is reported `failed`, the screenshot remains
+        archived, and the original bytes are left untouched (no delete/rewrite).
+        Workspace-scoped; idempotent (restoring an already-active screenshot is a
+        no-op success — its bytes are still verified first).
+        """
+        shot = self._owned_screenshot_or_raise(screenshot_id)
+        blob = self._repo.get_content_blob(shot.content_blob_id)
+        if blob is None:
+            # Should not happen for an owned screenshot; treat as a safe failure
+            # without disclosing internals.
+            raise VaultServiceError("failed to restore screenshot")
+
+        # Integrity verification: recompute SHA-256 from the stored bytes and
+        # compare to the checksum captured at upload. This never modifies bytes.
+        import hashlib
+
+        try:
+            data = self._store.read(blob.storage_path)
+            matches = hashlib.sha256(data).hexdigest() == blob.sha256
+        except FileStoreIntegrityError:
+            # The file store itself detected a content-address mismatch (corrupt
+            # bytes). That IS a checksum mismatch -> a safe `failed` restore, not
+            # an error. Keep the screenshot archived; bytes are left untouched.
+            matches = False
+        except Exception as exc:
+            # A non-integrity read error (missing file / OS error) -> safe generic
+            # failure; state and bytes retained, nothing disclosed.
+            self._session.rollback()
+            raise VaultServiceError("failed to restore screenshot") from exc
+
+        if not matches:
+            # DO NOT activate. Keep archived; bytes untouched. No state change.
+            self._session.rollback()
+            return LifecycleResult(
+                screenshot_id=screenshot_id, status="failed", state=shot.state
+            )
+
+        # Verified: return to active and commit.
+        try:
+            if shot.state != self._ACTIVE:
+                self._repo.set_screenshot_state(screenshot_id, self._ACTIVE)
+            self._session.commit()
+        except Exception as exc:
+            self._session.rollback()
+            raise VaultServiceError("failed to restore screenshot") from exc
+        return LifecycleResult(
+            screenshot_id=screenshot_id, status="successful", state=self._ACTIVE
+        )
