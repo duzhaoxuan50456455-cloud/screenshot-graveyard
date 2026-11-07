@@ -179,7 +179,7 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** tests assert accept = signature + decode + caps + size independent of declared extension/MIME, a mismatched-but-valid image is accepted with the detected format persisted, and a decompression bomb is rejected by the pixel cap.
   - **Priority:** P0
 
-- [ ] 1.8 Implement `Vault_Service` upload: validate → dedup → write-once → persist
+- [x] 1.8 Implement `Vault_Service` upload: validate → dedup → write-once → persist
   - Orchestrate validation, per-workspace blob dedup by SHA-256, write-once storage, and metadata persistence; assign a stable Screenshot ID; persist checksum + detected mime; flag duplicate upload records. `Vault_Service` is the only importer of the file store.
   - **Dependencies:** 1.6, 1.7, 1.2
   - **Requirements:** 1.7, 2.1, 2.2, 2.4, 2.5, INV-1, INV-3, P3, P4, P8

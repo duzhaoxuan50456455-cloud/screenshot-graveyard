@@ -104,6 +104,42 @@ class WorkspaceRepository:
         stmt = select(models.Workspace).where(models.Workspace.id == self._workspace_id)
         return self._session.scalars(stmt).one_or_none()
 
+    def lock_workspace(self) -> models.Workspace | None:
+        """Acquire a real per-workspace write lock to serialize critical sections.
+
+        This makes the quota read-check-insert ATOMIC per workspace on BOTH
+        backends:
+
+        * PostgreSQL: `SELECT ... FOR UPDATE` takes a genuine row lock held until
+          the transaction commits/rolls back.
+        * SQLite: `FOR UPDATE` is a no-op and *deferred* transactions take only a
+          read lock on SELECT, so two connections could read a stale count and
+          both insert. To close that race we perform a no-op `UPDATE` on this
+          workspace row, which acquires SQLite's database WRITE lock immediately
+          and blocks any other writer until this transaction ends. (On Postgres
+          the UPDATE also row-locks — redundant but harmless.)
+
+        Returns the locked workspace row, or None if it does not exist.
+        """
+        from sqlalchemy import update
+
+        # 1) Row lock (authoritative on Postgres).
+        stmt = (
+            select(models.Workspace)
+            .where(models.Workspace.id == self._workspace_id)
+            .with_for_update()
+        )
+        row = self._session.scalars(stmt).one_or_none()
+        if row is None:
+            return None
+        # 2) No-op write to force a real write lock on SQLite (and row lock on PG).
+        self._session.execute(
+            update(models.Workspace)
+            .where(models.Workspace.id == self._workspace_id)
+            .values(token_hash=models.Workspace.token_hash)
+        )
+        return row
+
     # ------------------------------ content_blob -----------------------------
 
     def create_content_blob(
