@@ -66,6 +66,17 @@ class LifecycleResult:
     state: str
 
 
+@dataclass(frozen=True)
+class OriginalImage:
+    """The exact original bytes of a screenshot plus its detected MIME type."""
+
+    screenshot_id: int
+    data: bytes
+    mime_type: str
+    sha256: str
+    byte_size: int
+
+
 class ScreenshotNotFoundError(Exception):
     """Raised when a screenshot is absent OR owned by another workspace.
 
@@ -327,4 +338,51 @@ class VaultService:
             raise VaultServiceError("failed to restore screenshot") from exc
         return LifecycleResult(
             screenshot_id=screenshot_id, status="successful", state=self._ACTIVE
+        )
+
+    # --------------------------------------------------------------- read
+
+    def read_original(self, screenshot_id: int) -> OriginalImage:
+        """Return the exact, unmodified original bytes for an OWNED screenshot.
+
+        Workspace-scoped: a missing OR foreign-workspace screenshot raises the
+        same generic ScreenshotNotFoundError (no existence disclosure). The bytes
+        are read only through the write-once FileStore boundary and are verified
+        (size + SHA-256) against the persisted content_blob metadata before
+        return; a missing/corrupt original raises VaultServiceError rather than
+        returning unverified bytes. This is a pure read — it never mutates state,
+        publishes files, or creates records.
+        """
+        try:
+            shot = self._owned_screenshot_or_raise(screenshot_id)
+            blob = self._repo.get_content_blob(shot.content_blob_id)
+        except ScreenshotNotFoundError:
+            # Preserve the identical missing/foreign-workspace result.
+            raise
+        except Exception as exc:
+            # Database/query failures must not escape the service boundary as
+            # framework errors or be mistaken for an authorized read.
+            self._session.rollback()
+            raise VaultServiceError("failed to read original") from exc
+        if blob is None:
+            # An owned screenshot always has a blob; a missing one is a safe,
+            # non-disclosing failure.
+            raise VaultServiceError("failed to read original")
+        try:
+            # The FileStore verifies size + content-address SHA-256 on read; we
+            # pass the persisted metadata for explicit defense-in-depth checks.
+            data = self._store.read(
+                blob.storage_path,
+                expected_sha256=blob.sha256,
+                expected_size=blob.byte_size,
+            )
+        except Exception as exc:
+            # Missing file / integrity failure -> safe failure, nothing leaked.
+            raise VaultServiceError("failed to read original") from exc
+        return OriginalImage(
+            screenshot_id=screenshot_id,
+            data=data,
+            mime_type=blob.mime_type,  # detected true format persisted at upload
+            sha256=blob.sha256,
+            byte_size=blob.byte_size,
         )

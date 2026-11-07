@@ -27,13 +27,18 @@ never fully buffered into memory beyond the cap during validation. Each
 from __future__ import annotations
 
 from fastapi import APIRouter, Request, Response, UploadFile, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app import config
 from app.db.session import get_session
 from app.middleware.limits import BatchTooLargeError, enforce_max_files_per_batch
 from app.db.repository import QuotaExceededError
-from app.services.vault_service import VaultService, VaultServiceError
+from app.services.vault_service import (
+    ScreenshotNotFoundError,
+    VaultService,
+    VaultServiceError,
+)
 from app.upload_validation import (
     PayloadTooLargeError,
     UploadValidationError,
@@ -170,5 +175,57 @@ def build_screenshots_router() -> APIRouter:
         else:  # all rejected
             response.status_code = status.HTTP_400_BAD_REQUEST
         return UploadResponse(results=results).model_dump()
+
+    @router.get("/{screenshot_id}/image", response_model=None)
+    def read_screenshot_image(request: Request, response: Response, screenshot_id: int):
+        """Return the exact original bytes of an OWNED screenshot.
+
+        Authorization is by the SERVER-RESOLVED workspace only; a client-supplied
+        workspace id (query/header/body) is never consulted. A missing OR
+        foreign-workspace screenshot returns the SAME generic 404 (existence
+        non-disclosure). Bytes are read only through the VaultService/FileStore
+        boundary and verified (size + SHA-256) before a 200. This is a safe GET:
+        it never creates or mutates private data. Private originals are returned
+        ONLY here, never via a static/SPA path.
+        """
+        # Fail closed if trusted identity could not be resolved (DB outage).
+        if getattr(request.state, "identity_unavailable", False):
+            return JSONResponse(
+                status_code=503,
+                content=_error_body("identity_unavailable", "Service temporarily unavailable"),
+            )
+        workspace_id = getattr(request.state, "workspace_id", None)
+        if workspace_id is None:
+            return JSONResponse(
+                status_code=401, content=_error_body("no_workspace", "No workspace")
+            )
+
+        session = get_session()
+        try:
+            vault = VaultService(session, workspace_id)
+            try:
+                original = vault.read_original(screenshot_id)
+            except ScreenshotNotFoundError:
+                # Missing OR foreign-workspace: identical generic 404.
+                return JSONResponse(
+                    status_code=404, content=_error_body("not_found", "Not Found")
+                )
+            except VaultServiceError:
+                # Missing/corrupt original: safe non-200 without disclosure. We
+                # use 404 so a corrupt/absent file is indistinguishable from a
+                # non-existent resource (no internal detail leaked).
+                return JSONResponse(
+                    status_code=404, content=_error_body("not_found", "Not Found")
+                )
+        finally:
+            session.close()
+
+        # Return exact bytes with the detected (persisted) MIME. No storage path,
+        # workspace token, filename, or checksum is exposed in headers.
+        return Response(
+            content=original.data,
+            media_type=original.mime_type,
+            headers={"Cache-Control": "private, no-store"},
+        )
 
     return router

@@ -200,7 +200,7 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** service tests assert archive→restore returns to active with matching SHA-256, a forced mismatch reports `failed` with bytes retained, and no permanent-delete path exists.
   - **Priority:** P0
 
-- [ ] 1.11 Implement the authorized image-read endpoint
+- [x] 1.11 Implement the authorized image-read endpoint
   - Serve image bytes only through a workspace-scoped, authorization-checked API endpoint; a foreign-workspace read returns `404`; bytes are never static/public.
   - **Dependencies:** 1.8, 1.3
   - **Requirements:** 9.10, 12.2, 12.6, P24
