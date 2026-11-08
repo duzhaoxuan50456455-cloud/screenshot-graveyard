@@ -244,7 +244,7 @@ The properties are grouped into these reusable modules:
 
 ### Phase 2 — November 8–13: AI Transformation (P0)
 
-- [ ] 2.1 Define the `AIAdapter` Protocol and Pydantic result schemas
+- [x] 2.1 Define the `AIAdapter` Protocol and Pydantic result schemas
   - Define `classify_and_epitaph` and `study_note` methods, `ClassificationResult` / `StudyNoteResult` Pydantic models, and an adapter timeout.
   - **Learn:** isolating a swappable AI boundary behind one validated Protocol.
   - **Dependencies:** 0.2

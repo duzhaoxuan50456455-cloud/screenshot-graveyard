@@ -8,6 +8,7 @@ Nothing here contains credentials; secrets are provided only via the environment
 
 from __future__ import annotations
 
+import math
 import os
 from pathlib import Path
 
@@ -130,6 +131,29 @@ MAX_SCREENSHOTS_PER_WORKSPACE: int = int(
 )
 MAX_AI_CALLS_PER_WORKSPACE: int = int(
     os.environ.get("MAX_AI_CALLS_PER_WORKSPACE", "1000")
+)
+
+def _positive_finite_float(raw: str, *, setting: str) -> float:
+    """Parse a required-positive finite duration at startup.
+
+    A zero, negative, NaN, or infinite adapter timeout would silently disable
+    the bounded-call safety contract, so configuration fails fast instead.
+    """
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise RuntimeError(f"{setting} must be a positive finite number") from exc
+    if not math.isfinite(value) or value <= 0:
+        raise RuntimeError(f"{setting} must be a positive finite number")
+    return value
+
+
+# Per-call wall-clock timeout (seconds) for any AIAdapter implementation
+# (design CORRECTION 4). On timeout the adapter raises AIAdapterTimeoutError and
+# the calling service marks the operation failed/uncertain with sources intact.
+AI_ADAPTER_TIMEOUT_SECONDS: float = _positive_finite_float(
+    os.environ.get("AI_ADAPTER_TIMEOUT_SECONDS", "30"),
+    setting="AI_ADAPTER_TIMEOUT_SECONDS",
 )
 
 
