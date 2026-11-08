@@ -228,7 +228,7 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** archive→restore yields bytes whose SHA-256 equals the stored checksum and returns to active; the Screenshot ID is stable across operations; ≥100 iterations.
   - **Priority:** P0
 
-- [ ] 1.15 Seed the PBT-ISOLATION module with workspace isolation (REQUIRED)
+- [x] 1.15 Seed the PBT-ISOLATION module with workspace isolation (REQUIRED)
   - Implement Property P24 for screenshots and image bytes (foreign workspace → `404`, data unchanged) with Hypothesis ≥100 iterations. *(CORRECTION 3 — REQUIRED, non-optional: covers workspace isolation P24.)*
   - **Dependencies:** 1.11
   - **Requirements:** 9.9, 9.10, 12.6, INV-1, INV-10, P24
