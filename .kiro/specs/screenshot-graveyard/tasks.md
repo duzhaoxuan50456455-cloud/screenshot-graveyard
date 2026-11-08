@@ -235,7 +235,7 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** for any resource created in workspace A, every read/mutate from workspace B returns `404` and leaves A's data unchanged; ≥100 iterations.
   - **Priority:** P0
 
-- [ ] 1.16 Checkpoint — ensure all tests pass
+- [x] 1.16 Checkpoint — ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
   - **Dependencies:** 1.12, 1.13, 1.14, 1.15
   - **Requirements:** 14.1
