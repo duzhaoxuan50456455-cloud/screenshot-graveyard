@@ -221,7 +221,7 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** all PBT-STORAGE properties pass ≥100 iterations, including concurrent identical uploads and the crash-safe sweep that never modifies a published original.
   - **Priority:** P0
 
-- [ ] 1.14 Write the PBT-LIFECYCLE module (REQUIRED)
+- [x] 1.14 Write the PBT-LIFECYCLE module (REQUIRED)
   - Implement Properties P2 and P8 with Hypothesis ≥100 iterations. *(CORRECTION 3 — REQUIRED, non-optional: covers SHA-256 archive/restore round-trip P2.)*
   - **Dependencies:** 1.10
   - **Requirements:** 3.1, 3.2, 3.3, 14.2, 1.7, INV-2, INV-3, INV-10, P2, P8
