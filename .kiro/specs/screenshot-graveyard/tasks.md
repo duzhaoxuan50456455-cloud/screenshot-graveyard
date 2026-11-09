@@ -266,7 +266,7 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** tests assert an AI call without consent returns `403` and the adapter is never invoked, while vault operations still succeed with bytes intact.
   - **Priority:** P0
 
-- [ ] 2.4 Implement the operation lifecycle with async 202 + poll
+- [x] 2.4 Implement the operation lifecycle with async 202 + poll
   - Create `operation` records; AI endpoints return `202` + `operationId`; `GET /api/operations/{id}` reports `pending`/`successful`/`failed`/`uncertain`; `successful` only after the persistence commit.
   - **Dependencies:** 1.2, 2.1
   - **Requirements:** 8.2, 8.3, P22

@@ -56,6 +56,20 @@ class CrossWorkspaceError(Exception):
         super().__init__(detail)
 
 
+# The persisted operation state machine is intentionally small and closed.  The
+# repository is the shared write boundary, so validating here keeps callers from
+# writing a status that the poll API cannot safely represent (Property 22).
+OPERATION_STATUSES = frozenset({"pending", "successful", "failed", "uncertain"})
+
+
+class InvalidOperationStatusError(ValueError):
+    """Raised when a caller attempts to persist an unsupported operation state."""
+
+
+class InvalidOperationTransitionError(ValueError):
+    """Raised when a caller attempts to bypass the pending→terminal lifecycle."""
+
+
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -338,6 +352,10 @@ class WorkspaceRepository:
     def create_operation(
         self, *, kind: str, status: str = "pending", artifact_id: int | None = None
     ) -> models.Operation:
+        if status not in OPERATION_STATUSES:
+            raise InvalidOperationStatusError("invalid operation status")
+        if status != "pending":
+            raise InvalidOperationTransitionError("operations must start pending")
         if artifact_id is not None:
             self._require_owned(models.Artifact, artifact_id)
         op = models.Operation(
@@ -356,7 +374,11 @@ class WorkspaceRepository:
     def set_operation_status(
         self, operation_id: int, status: str, error_detail: str | None = None
     ) -> models.Operation:
+        if status not in OPERATION_STATUSES:
+            raise InvalidOperationStatusError("invalid operation status")
         op = self._require_owned(models.Operation, operation_id)
+        if op.status != "pending" or status == "pending":
+            raise InvalidOperationTransitionError("invalid operation transition")
         op.status = status
         if error_detail is not None:
             op.error_detail = error_detail
