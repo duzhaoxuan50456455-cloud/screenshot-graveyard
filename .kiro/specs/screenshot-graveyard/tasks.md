@@ -259,7 +259,7 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** tests assert default output validates, and the invalid/timeout/uncertain modes produce the corresponding simulated results.
   - **Priority:** P0
 
-- [ ] 2.3 Implement `Consent_Service` and the consent gate
+- [x] 2.3 Implement `Consent_Service` and the consent gate
   - Record/read per-screenshot consent; block AI paths with `403` and never call the adapter without consent; store/archive/restore still work without consent.
   - **Dependencies:** 1.2, 2.1
   - **Requirements:** 9.2, 9.4, P23
