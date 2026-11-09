@@ -13,6 +13,7 @@ from app.ai.schemas import (
     StudyNoteResult,
 )
 from app.ai.adapter import AIAdapter, AIAdapterError, AIAdapterTimeoutError
+from app.ai.fake_adapter import FakeAIAdapter, FakeAIAdapterMode
 
 __all__ = [
     "Category",
@@ -22,4 +23,6 @@ __all__ = [
     "AIAdapter",
     "AIAdapterError",
     "AIAdapterTimeoutError",
+    "FakeAIAdapter",
+    "FakeAIAdapterMode",
 ]

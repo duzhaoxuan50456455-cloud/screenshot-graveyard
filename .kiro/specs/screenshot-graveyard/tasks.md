@@ -252,7 +252,7 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** a contract test asserts the Protocol methods and schemas exist and that well-formed sample output validates against the Pydantic models.
   - **Priority:** P0
 
-- [ ] 2.2 Implement the `fake_adapter`
+- [x] 2.2 Implement the `fake_adapter`
   - Deterministic adapter returning schema-valid output, with switches to simulate invalid output, timeouts, and uncertainty.
   - **Dependencies:** 2.1
   - **Requirements:** 13.4, P12, P13
