@@ -273,7 +273,7 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** tests assert the status is always one of the four values, is observable via the poll endpoint, and transitions to `successful` only post-commit.
   - **Priority:** P0
 
-- [ ] 2.5 Implement `Classification_Service` with atomic co-persistence
+- [x] 2.5 Implement `Classification_Service` with atomic co-persistence
   - Make one AI call; persist classification + Epitaph in a single transaction (or full rollback); invalid/uncertain → `failed`/`uncertain` with sources untouched; allow edit/override as new versions; treat Potentially Sensitive as advisory.
   - **Dependencies:** 2.2, 2.3, 2.4
   - **Requirements:** 4.1, 4.2, 4.3, 4.4, 4.5, 4.7, 5.1, 5.3, INV-1, INV-4, P12, P13, P14

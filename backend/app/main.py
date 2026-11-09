@@ -159,6 +159,8 @@ def create_app(
     application.include_router(build_consent_router())
     from app.routers.operations import build_operations_router
     application.include_router(build_operations_router())
+    from app.routers.classification import build_classification_router
+    application.include_router(build_classification_router())
 
     # Explicit guard: any unmatched /api path returns a JSON API error, never
     # the SPA. Registered before the SPA catch-all so it takes precedence for
