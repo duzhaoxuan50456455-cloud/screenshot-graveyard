@@ -287,7 +287,7 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** tests assert counts 1 and 12 accepted, 0 and 13 rejected, and the non-blocking warning present exactly when count `<4` or `>8`.
   - **Priority:** P0
 
-- [ ] 2.7 Implement `Study_Note_Service` generation
+- [x] 2.7 Implement `Study_Note_Service` generation
   - Generate all required sections; preserve code faithfully; flag uncertainty; record `source_reference` to each Screenshot ID; persist version 1 atomically; never modify source bytes.
   - **Dependencies:** 2.2, 2.3, 2.4, 2.6
   - **Requirements:** 6.4, 6.5, 6.6, 6.7, 6.12, INV-1, INV-7, P16, P18, P19

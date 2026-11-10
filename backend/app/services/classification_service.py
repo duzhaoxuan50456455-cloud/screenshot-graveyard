@@ -47,7 +47,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 from sqlalchemy.orm import Session
 
 from app.ai.adapter import AIAdapter, AIAdapterError
@@ -174,8 +174,13 @@ class ClassificationService:
         # 4) Validate at the boundary (do NOT trust the return annotation). A fake
         #    or real adapter returning malformed data is rejected here (P12).
         try:
-            result = ClassificationResult.model_validate(raw)
-        except ValidationError:
+            # Pydantic trusts an instance of the target model by default.
+            # Dumping then validating closes that escape hatch for
+            # `model_construct`-created, malformed provider objects, including
+            # invalid nested Epitaph data and enum/confidence values.
+            payload = raw.model_dump() if isinstance(raw, BaseModel) else raw
+            result = ClassificationResult.model_validate(payload)
+        except (ValidationError, TypeError, ValueError):
             op = self._operations.set_terminal_status(
                 operation_id, "failed", error_detail="AI output failed validation"
             )

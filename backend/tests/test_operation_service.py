@@ -58,6 +58,37 @@ def test_success_and_related_persistence_commit_together(ctx):
     assert service.get(operation.operation_id).status == "successful"
 
 
+def test_uncertain_completion_and_related_persistence_commit_together(ctx):
+    session, workspace_a, _ = ctx
+    service = OperationService(session, workspace_a)
+    operation = service.create_pending("study_note")
+
+    state = service.complete_after_persistence(
+        operation.operation_id,
+        lambda: WorkspaceRepository(session, workspace_a).create_artifact(kind="study_note"),
+        terminal_status="uncertain",
+    )
+
+    assert state.status == "uncertain"
+    assert session.scalar(select(models.Artifact).where(models.Artifact.workspace_id == workspace_a))
+    with pytest.raises(OperationTransitionError):
+        service.set_terminal_status(operation.operation_id, "failed")
+
+
+def test_completion_rejects_unapproved_terminal_status_without_persisting(ctx):
+    session, workspace_a, _ = ctx
+    service = OperationService(session, workspace_a)
+    operation = service.create_pending("study_note")
+    with pytest.raises(ValueError, match="successful or uncertain"):
+        service.complete_after_persistence(
+            operation.operation_id,
+            lambda: WorkspaceRepository(session, workspace_a).create_artifact(kind="study_note"),
+            terminal_status="failed",
+        )
+    assert session.scalars(select(models.Artifact)).all() == []
+    assert service.get(operation.operation_id).status == "pending"
+
+
 def test_persistence_failure_never_reports_success_and_rolls_back(ctx):
     session, workspace_a, _ = ctx
     service = OperationService(session, workspace_a)

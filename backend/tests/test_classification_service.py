@@ -130,6 +130,37 @@ def test_schema_failure_marks_failed_with_no_partial_artifacts(ctx):
     assert _counts(s, wa) == (0, 0, 0)
 
 
+def test_model_construct_invalid_instance_is_revalidated_and_rejected(ctx):
+    """Pydantic target instances must not bypass validation at the service boundary."""
+    s, store, wa, _ = ctx
+    sid, op_id, vault = _setup(s, store, wa)
+
+    class ConstructedInvalidAdapter:
+        calls = 0
+
+        def classify_and_epitaph(self, image_bytes, mime):
+            self.calls += 1
+            return ClassificationResult.model_construct(
+                category="not-a-category",
+                confidence=2.0,
+                uncertain=False,
+                epitaph=EpitaphPayload.model_construct(
+                    text="", visible_facts=123, inferred_intent=None, uncertain=False
+                ),
+            )
+
+        def study_note(self, images):
+            raise AssertionError("not used")
+
+    adapter = ConstructedInvalidAdapter()
+    outcome = ClassificationService(s, wa, adapter=adapter, vault=vault).run_classification(
+        sid, op_id
+    )
+    assert adapter.calls == 1
+    assert outcome.operation.status == "failed"
+    assert _counts(s, wa) == (0, 0, 0)
+
+
 def test_uncertain_result_is_distinguishable_and_persists_no_artifacts(ctx):
     s, store, wa, _ = ctx
     sid, op_id, v = _setup(s, store, wa)

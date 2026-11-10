@@ -135,7 +135,11 @@ class OperationService:
         return self._state(operation)
 
     def complete_after_persistence(
-        self, operation_id: int, persist: Callable[[], None]
+        self,
+        operation_id: int,
+        persist: Callable[[], None],
+        *,
+        terminal_status: str = "successful",
     ) -> OperationState:
         """Atomically persist related work and make the operation successful.
 
@@ -143,7 +147,15 @@ class OperationService:
         not commit.  The related writes and the pending→successful state change
         become externally visible together on the commit below.  On failure the
         transaction rolls back, then a fresh transaction records ``failed``.
+
+        ``terminal_status`` is ``successful`` (default) or ``uncertain``.  The
+        latter lets a service persist a result that explicitly represents
+        uncertainty (P13, e.g. a study note with Uncertain/ambiguous content)
+        and record ``uncertain`` in the SAME commit; it never becomes
+        ``successful`` or ``failed`` through this path.
         """
+        if terminal_status not in {"successful", "uncertain"}:
+            raise ValueError("terminal_status must be successful or uncertain")
         try:
             # Serialize completion before executing the callback.  This is
             # deliberately before ``persist`` so a duplicate worker sees the
@@ -157,7 +169,7 @@ class OperationService:
             if current.status != "pending":
                 raise OperationTransitionError("operation is already terminal")
             persist()
-            operation = self._repo.set_operation_status(operation_id, "successful")
+            operation = self._repo.set_operation_status(operation_id, terminal_status)
             self._session.commit()
         except (OperationNotFoundError, OperationTransitionError):
             self._session.rollback()
