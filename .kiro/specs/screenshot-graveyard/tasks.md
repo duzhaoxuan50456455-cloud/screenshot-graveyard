@@ -280,7 +280,7 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** tests assert exactly one adapter call, classification and Epitaph committed together or not at all, schema failure → `failed` with sources unchanged, and Potentially Sensitive surfaced as advisory.
   - **Priority:** P0
 
-- [ ] 2.6 Implement manual study-screenshot selection and the count policy
+- [x] 2.6 Implement manual study-screenshot selection and the count policy
   - Require manual selection; accept 1–12; warn (non-blocking) outside 4–8; reject `<1` or `>12` with a descriptive error.
   - **Dependencies:** 1.2
   - **Requirements:** 6.1, 6.2, 6.3, P20
