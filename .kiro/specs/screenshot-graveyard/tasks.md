@@ -294,7 +294,7 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** tests assert all sections present, extracted code preserved character-for-character, source references recorded, and source bytes unchanged.
   - **Priority:** P0
 
-- [ ] 2.8 Implement study-note edit, reopen-original, and Markdown export
+- [x] 2.8 Implement study-note edit, reopen-original, and Markdown export
   - Save edits as new versions; let the user reopen each referenced original; export valid Markdown (mandatory P0) reflecting the selected retained version, defaulting to current.
   - **Dependencies:** 2.7
   - **Requirements:** 6.8, 6.9, 6.11, P21

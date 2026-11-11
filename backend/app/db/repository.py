@@ -286,7 +286,7 @@ class WorkspaceRepository:
         stmt = select(models.ArtifactVersion).where(
             models.ArtifactVersion.workspace_id == self._workspace_id,
             models.ArtifactVersion.artifact_id == artifact_id,
-        )
+        ).order_by(models.ArtifactVersion.version_number)
         return list(self._session.scalars(stmt))
 
     # ---------------------------- source_reference ---------------------------
@@ -311,7 +311,7 @@ class WorkspaceRepository:
         stmt = select(models.SourceReference).where(
             models.SourceReference.workspace_id == self._workspace_id,
             models.SourceReference.artifact_id == artifact_id,
-        )
+        ).order_by(models.SourceReference.id)
         return list(self._session.scalars(stmt))
 
     # ----------------------------- consent_record ----------------------------

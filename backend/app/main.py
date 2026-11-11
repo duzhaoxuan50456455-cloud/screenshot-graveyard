@@ -163,6 +163,8 @@ def create_app(
     application.include_router(build_classification_router())
     from app.routers.study_notes import build_study_notes_router
     application.include_router(build_study_notes_router())
+    from app.routers.study_note_artifacts import build_study_note_artifacts_router
+    application.include_router(build_study_note_artifacts_router())
     from app.routers.study_selection import build_study_selection_router
     application.include_router(build_study_selection_router())
 
