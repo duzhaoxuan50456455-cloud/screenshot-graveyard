@@ -151,6 +151,13 @@ class StudyNoteService:
             return self._fail(operation_id, "AI processing unavailable")
 
         # 4) EXACTLY ONE adapter call.
+        # Refresh the operation heartbeat after the potentially lengthy source
+        # reads and immediately before the adapter boundary.  The stale sweep
+        # can then distinguish queued/active work from a crashed worker.
+        try:
+            self._operations.heartbeat_pending(operation_id)
+        except OperationTransitionError:
+            return StudyNoteOutcome(operation=self._operations.get(operation_id))
         try:
             raw = self._adapter.study_note(images)
         except AIAdapterError:

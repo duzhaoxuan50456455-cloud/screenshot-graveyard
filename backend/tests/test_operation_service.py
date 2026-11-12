@@ -284,3 +284,17 @@ def test_stale_pending_recovery_marks_only_pending_operation_failed(ctx):
     recovered = service.get(operation.operation_id)
     assert recovered.status == "failed"
     assert recovered.error_detail == "Processing interrupted; please retry"
+
+
+def test_heartbeat_pending_refreshes_only_pending_operation(ctx):
+    session, workspace_a, _ = ctx
+    service = OperationService(session, workspace_a)
+    operation = service.create_pending("classify")
+    now = datetime.now(timezone.utc)
+    assert service.heartbeat_pending(operation.operation_id, now=now).status == "pending"
+    stored = session.get(models.Operation, operation.operation_id).updated_at
+    # SQLite returns a naive datetime even for timezone-aware columns.
+    assert stored.replace(tzinfo=timezone.utc) == now
+    service.set_terminal_status(operation.operation_id, "failed")
+    with pytest.raises(OperationTransitionError):
+        service.heartbeat_pending(operation.operation_id, now=now)

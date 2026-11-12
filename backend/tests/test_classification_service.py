@@ -171,6 +171,19 @@ def test_uncertain_result_is_distinguishable_and_persists_no_artifacts(ctx):
     assert _counts(s, wa) == (0, 0, 0)  # P14: neither persisted
 
 
+def test_adapter_timeout_marks_failed_without_partial_artifacts_or_byte_mutation(ctx):
+    s, store, wa, _ = ctx
+    original_bytes = png((10, 20, 30))
+    sid, op_id, vault = _setup(s, store, wa, data=original_bytes)
+    outcome = ClassificationService(
+        s, wa, adapter=CountingAdapter(mode=FakeAIAdapterMode.TIMEOUT), vault=vault
+    ).run_classification(sid, op_id)
+    assert outcome.operation.status == "failed"
+    assert outcome.operation.error_detail == "AI analysis failed"
+    assert _counts(s, wa) == (0, 0, 0)
+    assert vault.read_original(sid).data == original_bytes
+
+
 def test_no_consent_blocks_adapter_and_fails(ctx):
     s, store, wa, _ = ctx
     sid, op_id, v = _setup(s, store, wa, consent=False)
@@ -259,11 +272,13 @@ def test_persistence_failure_rolls_back_related_changes(ctx, monkeypatch):
     # Force ONLY the atomic completion commit to fail; the fresh failure-commit
     # in the error handler is allowed through so the operation records `failed`.
     real_commit = s.commit
-    state = {"fail_next": True}
+    state = {"calls": 0}
 
     def flaky_commit():
-        if state["fail_next"]:
-            state["fail_next"] = False
+        state["calls"] += 1
+        # Task 2.9 records a pending-operation heartbeat before the adapter;
+        # fail the subsequent atomic artifact+successful-status commit.
+        if state["calls"] == 2:
             raise RuntimeError("simulated commit failure")
         return real_commit()
 

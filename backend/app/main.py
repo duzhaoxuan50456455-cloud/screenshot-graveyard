@@ -17,6 +17,8 @@ the file store, and feature endpoints are added by later tasks.
 
 from __future__ import annotations
 
+import asyncio
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from fastapi import APIRouter, FastAPI, Request
@@ -30,6 +32,9 @@ from app.middleware.limits import (
     WorkspaceRateLimitMiddleware,
 )
 from app.middleware.workspace import WorkspaceMiddleware
+from app import config
+from app.db.session import SessionLocal
+from app.services.operation_recovery_service import OperationRecoveryService
 
 APP_TITLE = "Screenshot Graveyard API"
 APP_VERSION = "0.1.0"
@@ -107,11 +112,39 @@ def _mount_spa(application: FastAPI, dist_dir: Path) -> None:
         return FileResponse(index_file)
 
 
+async def _recovery_loop(
+    stop: asyncio.Event,
+    session_factory,
+    *,
+    stale_after_seconds: float,
+    interval_seconds: float,
+    now=None,
+) -> None:
+    """Run bounded recovery at the approved periodic lifespan boundary."""
+    while not stop.is_set():
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=interval_seconds)
+        except TimeoutError:
+            try:
+                OperationRecoveryService(
+                    session_factory, stale_after_seconds=stale_after_seconds, now=now
+                ).sweep()
+            except Exception:
+                # Recovery itself must remain available after a transient or
+                # unexpected failure.  Do not log exception objects here: they
+                # may contain database/provider details. The next interval
+                # retries without manufacturing any terminal status.
+                pass
+
+
 def create_app(
     workspace_session_factory=None,
     rate_limiter=None,
     workspace_rate_limiter=None,
     max_request_bytes=None,
+    operation_recovery_stale_after_seconds: float | None = None,
+    operation_recovery_interval_seconds: float | None = None,
+    operation_recovery_now=None,
 ) -> FastAPI:
     """Build and return a configured FastAPI application instance.
 
@@ -119,7 +152,49 @@ def create_app(
         A :class:`fastapi.FastAPI` instance with the API router registered and,
         when ``frontend/dist`` exists, the built SPA served at the same origin.
     """
-    application = FastAPI(title=APP_TITLE, version=APP_VERSION)
+    recovery_session_factory = workspace_session_factory or SessionLocal
+    stale_after_seconds = (
+        config.STALE_PENDING_OPERATION_SECONDS
+        if operation_recovery_stale_after_seconds is None
+        else operation_recovery_stale_after_seconds
+    )
+    interval_seconds = (
+        config.OPERATION_RECOVERY_INTERVAL_SECONDS
+        if operation_recovery_interval_seconds is None
+        else operation_recovery_interval_seconds
+    )
+    if stale_after_seconds <= 0 or interval_seconds <= 0:
+        raise ValueError("operation recovery durations must be positive")
+
+    @asynccontextmanager
+    async def lifespan(_application: FastAPI):
+        # Startup recovery intentionally does not crash the API if the database
+        # is unavailable: RecoveryService leaves unknown rows pending instead
+        # of manufacturing a terminal outcome.  A later periodic sweep retries.
+        OperationRecoveryService(
+            recovery_session_factory,
+            stale_after_seconds=stale_after_seconds,
+            now=operation_recovery_now,
+        ).sweep()
+        stop = asyncio.Event()
+        periodic_task = asyncio.create_task(
+            _recovery_loop(
+                stop,
+                recovery_session_factory,
+                stale_after_seconds=stale_after_seconds,
+                interval_seconds=interval_seconds,
+                now=operation_recovery_now,
+            )
+        )
+        try:
+            yield
+        finally:
+            stop.set()
+            periodic_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await periodic_task
+
+    application = FastAPI(title=APP_TITLE, version=APP_VERSION, lifespan=lifespan)
 
     # Middleware is added inner-to-outer; on the request path it runs in REVERSE
     # add order. Target request-path order:

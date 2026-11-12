@@ -156,6 +156,20 @@ AI_ADAPTER_TIMEOUT_SECONDS: float = _positive_finite_float(
     setting="AI_ADAPTER_TIMEOUT_SECONDS",
 )
 
+# BackgroundTasks are intentionally non-durable.  Startup and the managed
+# lifespan loop recover only operations older than this conservative window;
+# the normal adapter timeout is much shorter.  Values are server-side and
+# validated like the adapter timeout so an invalid setting cannot make every
+# fresh request look stale or disable recovery entirely.
+STALE_PENDING_OPERATION_SECONDS: float = _positive_finite_float(
+    os.environ.get("STALE_PENDING_OPERATION_SECONDS", "300"),
+    setting="STALE_PENDING_OPERATION_SECONDS",
+)
+OPERATION_RECOVERY_INTERVAL_SECONDS: float = _positive_finite_float(
+    os.environ.get("OPERATION_RECOVERY_INTERVAL_SECONDS", "60"),
+    setting="OPERATION_RECOVERY_INTERVAL_SECONDS",
+)
+
 
 # ---- Upload image validation (Task 1.7) ----
 # Supported image formats (content-authoritative; A5 / Req 1.2-1.3). Declared

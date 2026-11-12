@@ -61,6 +61,7 @@ from app.services.operation_service import (
     OperationPersistenceError,
     OperationService,
     OperationState,
+    OperationTransitionError,
 )
 from app.services.vault_service import (
     ScreenshotNotFoundError as VaultScreenshotNotFoundError,
@@ -163,6 +164,12 @@ class ClassificationService:
             return ClassificationOutcome(operation=op)
 
         # 3) EXACTLY ONE adapter call. Timeouts/adapter errors -> failed, no artifacts.
+        # Heartbeat immediately before the external-facing boundary so queued
+        # work is not mistaken for a crashed worker by stale recovery.
+        try:
+            self._operations.heartbeat_pending(operation_id)
+        except OperationTransitionError:
+            return ClassificationOutcome(operation=self._operations.get(operation_id))
         try:
             raw = self._adapter.classify_and_epitaph(original.data, original.mime_type)
         except AIAdapterError:

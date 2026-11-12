@@ -301,7 +301,7 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** tests assert an edit creates a new retained version, each referenced original is reopenable, and export produces valid Markdown for the selected/current version.
   - **Priority:** P0
 
-- [ ] 2.9 Implement the startup stale-pending sweep and adapter-timeout handling
+- [x] 2.9 Implement the startup stale-pending sweep and adapter-timeout handling
   - Run AI work in non-durable `BackgroundTasks`; on startup/periodically mark stale `pending` operations `failed`; handle adapter timeouts; leave sources intact.
   - **Dependencies:** 2.4, 2.5
   - **Requirements:** 8.1, 8.2, 8.3, INV-4, P22, P13

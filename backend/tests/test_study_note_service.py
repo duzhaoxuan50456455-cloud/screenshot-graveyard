@@ -324,11 +324,13 @@ def test_commit_failure_rolls_back_and_never_succeeds(ctx, monkeypatch):
     ids, v = _shots(s, store, wa)
     op = _op(s, wa)
     real_commit = s.commit
-    state = {"fail": True}
+    state = {"calls": 0}
 
     def flaky_commit():
-        if state["fail"]:
-            state["fail"] = False
+        state["calls"] += 1
+        # The first commit is Task 2.9's pre-adapter heartbeat; fail the
+        # later atomic Study Note persistence commit.
+        if state["calls"] == 2:
             raise RuntimeError("commit failed")
         return real_commit()
 

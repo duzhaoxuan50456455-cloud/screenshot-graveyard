@@ -134,6 +134,35 @@ class OperationService:
             raise OperationServiceUnavailableError("operation service unavailable") from exc
         return self._state(operation)
 
+    def heartbeat_pending(
+        self, operation_id: int, *, now: datetime | None = None
+    ) -> OperationState:
+        """Record that a pending worker is about to enter its adapter boundary.
+
+        This is deliberately a heartbeat, not a status transition: it gives the
+        stale-pending sweep a timestamp for real queued work without claiming
+        success or extending a terminal operation.  A conforming adapter's
+        bounded timeout remains much shorter than the recovery threshold.
+        """
+        moment = now or datetime.now(timezone.utc)
+        if moment.tzinfo is None:
+            raise ValueError("now must be timezone-aware")
+        try:
+            if self._repo.lock_workspace() is None:
+                raise OperationNotFoundError("operation not found")
+            operation = self._repo.get_operation(operation_id)
+            if operation is None:
+                raise OperationNotFoundError("operation not found")
+            if operation.status != "pending":
+                raise OperationTransitionError("operation is already terminal")
+            operation.updated_at = moment
+            self._session.flush()
+            self._session.commit()
+        except SQLAlchemyError as exc:
+            self._session.rollback()
+            raise OperationServiceUnavailableError("operation service unavailable") from exc
+        return self._state(operation)
+
     def complete_after_persistence(
         self,
         operation_id: int,
@@ -195,7 +224,9 @@ class OperationService:
             raise OperationPersistenceError("operation persistence failed") from exc
         return self._state(operation)
 
-    def fail_stale_pending(self, older_than_seconds: float) -> int:
+    def fail_stale_pending(
+        self, older_than_seconds: float, *, now: datetime | None = None
+    ) -> int:
         """Recover stale in-process work after a restart without touching sources.
 
         The design's background tasks are intentionally non-durable.  This
@@ -204,7 +235,13 @@ class OperationService:
         """
         if older_than_seconds <= 0:
             raise ValueError("older_than_seconds must be positive")
-        cutoff = datetime.now(timezone.utc) - timedelta(seconds=older_than_seconds)
+        moment = now or datetime.now(timezone.utc)
+        if moment.tzinfo is None:
+            raise ValueError("now must be timezone-aware")
+        # Strictly older is intentional: an operation exactly on the boundary
+        # is not yet stale.  A single caller-supplied moment gives the global
+        # recovery sweep one deterministic cutoff across workspaces.
+        cutoff = moment - timedelta(seconds=older_than_seconds)
         try:
             # Use the same per-workspace serialization as completion so a
             # recovery sweep cannot race an actively committing worker.
@@ -222,7 +259,7 @@ class OperationService:
             for operation in stale:
                 operation.status = "failed"
                 operation.error_detail = "Processing interrupted; please retry"
-                operation.updated_at = datetime.now(timezone.utc)
+                operation.updated_at = moment
             self._session.commit()
         except SQLAlchemyError as exc:
             self._session.rollback()
