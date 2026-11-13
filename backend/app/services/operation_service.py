@@ -63,6 +63,7 @@ class OperationState:
     kind: str
     status: str
     error_detail: str | None = None
+    artifact_id: int | None = None
 
 
 class OperationService:
@@ -81,6 +82,7 @@ class OperationService:
             kind=operation.kind,
             status=operation.status,
             error_detail=operation.error_detail,
+            artifact_id=operation.artifact_id,
         )
 
     def create_pending(self, kind: str) -> OperationState:
@@ -182,7 +184,7 @@ class OperationService:
     def complete_after_persistence(
         self,
         operation_id: int,
-        persist: Callable[[], None],
+        persist: Callable[[], int | models.Artifact | None],
         *,
         terminal_status: str = "successful",
     ) -> OperationState:
@@ -213,7 +215,19 @@ class OperationService:
                 raise OperationNotFoundError("operation not found")
             if current.status != "pending":
                 raise OperationTransitionError("operation is already terminal")
-            persist()
+            persisted = persist()
+            # Existing callers may return their freshly created ORM artifact;
+            # new callers can return its integer ID. Both preserve the prior
+            # callback contract while allowing an atomic operation link.
+            artifact_id = (
+                persisted.id
+                if isinstance(persisted, models.Artifact)
+                else persisted
+                if type(persisted) is int
+                else None
+            )
+            if artifact_id is not None:
+                self._repo.set_operation_artifact(operation_id, artifact_id)
             operation = self._repo.set_operation_status(operation_id, terminal_status)
             self._session.commit()
         except (OperationNotFoundError, OperationTransitionError):

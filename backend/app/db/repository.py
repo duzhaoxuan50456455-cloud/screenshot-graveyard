@@ -306,6 +306,32 @@ class WorkspaceRepository:
         self._session.flush()
         return ref
 
+    def list_artifacts_for_screenshot(
+        self, screenshot_id: int, kind: str
+    ) -> list[models.Artifact]:
+        """Artifacts of `kind` whose provenance references this OWNED screenshot.
+
+        Workspace-scoped on both the artifact and the source_reference rows;
+        a foreign/missing screenshot yields CrossWorkspaceError like every
+        other lookup. Ordered oldest -> newest by id.
+        """
+        self._require_owned(models.Screenshot, screenshot_id)
+        stmt = (
+            select(models.Artifact)
+            .join(
+                models.SourceReference,
+                models.SourceReference.artifact_id == models.Artifact.id,
+            )
+            .where(
+                models.Artifact.workspace_id == self._workspace_id,
+                models.SourceReference.workspace_id == self._workspace_id,
+                models.SourceReference.screenshot_id == screenshot_id,
+                models.Artifact.kind == kind,
+            )
+            .order_by(models.Artifact.id.asc())
+        )
+        return list(self._session.scalars(stmt))
+
     def list_source_references(self, artifact_id: int) -> list[models.SourceReference]:
         self._require_owned(models.Artifact, artifact_id)
         stmt = select(models.SourceReference).where(
@@ -385,6 +411,19 @@ class WorkspaceRepository:
         op.updated_at = _utcnow()
         self._session.flush()
         return op
+
+    def set_operation_artifact(self, operation_id: int, artifact_id: int) -> models.Operation:
+        """Attach an owned produced artifact before the terminal commit.
+
+        The link is written in the same transaction as its generated artifact
+        and the operation's terminal state, so clients can safely discover the
+        exact result without inferring it from a concurrent list response.
+        """
+        operation = self._require_owned(models.Operation, operation_id)
+        self._require_owned(models.Artifact, artifact_id)
+        operation.artifact_id = artifact_id
+        self._session.flush()
+        return operation
 
     # ------------------------------- quotas ----------------------------------
 

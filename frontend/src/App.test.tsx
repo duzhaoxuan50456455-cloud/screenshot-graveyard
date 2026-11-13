@@ -16,6 +16,24 @@ vi.mock('./api/client', () => ({
   imageUrl: (id: number) => `/api/screenshots/${id}/image`,
 }));
 
+// The AI panels call ./api/ai on mount (read-only). Keep these tests off the network.
+vi.mock('./api/ai', () => ({
+  listStudyNotes: () => Promise.resolve({ ok: true, data: [] }),
+  getProviderMode: () => Promise.resolve({ ok: true, data: 'fake' }),
+  getConsent: () => Promise.resolve({ ok: true, data: false }),
+  getAnalysis: () => Promise.resolve({ ok: false, status: 404, code: 'not_found', message: 'Not Found' }),
+  setConsent: vi.fn(),
+  classifyScreenshot: vi.fn(),
+  getOperation: vi.fn(),
+  editAnalysis: vi.fn(),
+  generateStudyNote: vi.fn(),
+  getStudyNote: vi.fn(),
+  listStudyNoteVersions: vi.fn(),
+  saveStudyNoteEdit: vi.fn(),
+  studyNoteExportUrl: () => '/export',
+  CATEGORIES: [],
+}));
+
 import App from './App';
 
 describe('App', () => {

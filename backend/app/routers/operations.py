@@ -54,6 +54,8 @@ def _operation_dict(state) -> dict:
     }
     if state.error_detail is not None:
         result["errorDetail"] = state.error_detail
+    if state.artifact_id is not None:
+        result["artifactId"] = state.artifact_id
     return result
 
 

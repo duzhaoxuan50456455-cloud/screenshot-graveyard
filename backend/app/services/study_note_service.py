@@ -195,7 +195,7 @@ class StudyNoteService:
         uncertain = len(result.uncertain_content) > 0
         created: dict[str, int] = {}
 
-        def _persist() -> None:
+        def _persist() -> int:
             art = self._repo.create_artifact(kind=_KIND_STUDY_NOTE)
             ver = self._repo.add_artifact_version(
                 artifact_id=art.id,
@@ -207,6 +207,7 @@ class StudyNoteService:
                 self._repo.add_source_reference(artifact_id=art.id, screenshot_id=sid)
             self._repo.set_current_version(art.id, ver.id)
             created["artifact_id"] = art.id
+            return art.id
 
         try:
             op = self._operations.complete_after_persistence(

@@ -107,6 +107,56 @@ class StudyNoteArtifactService:
         except SQLAlchemyError as exc:
             raise StudyNoteArtifactUnavailableError("study note service unavailable") from exc
 
+    def list_notes(self) -> list[dict]:
+        """Owned study notes, newest first (Task 2.10 integration).
+
+        Summaries only: id, current version number/origin, topic, ordered source
+        IDs. Unreadable notes are skipped rather than failing the whole list.
+        """
+        try:
+            notes = []
+            for artifact in sorted(
+                self._repo.list_artifacts(kind=_KIND_STUDY_NOTE),
+                key=lambda a: a.id,
+                reverse=True,
+            ):
+                try:
+                    v = self.get_version(artifact.id)
+                except (StudyNoteArtifactNotFoundError, StudyNoteArtifactUnavailableError):
+                    continue
+                notes.append({
+                    "artifactId": v.artifact_id,
+                    "versionNumber": v.version_number,
+                    "origin": v.origin,
+                    "topic": v.content.topic,
+                    "sourceScreenshotIds": v.source_screenshot_ids,
+                })
+            return notes
+        except SQLAlchemyError as exc:
+            raise StudyNoteArtifactUnavailableError("study note service unavailable") from exc
+
+    def list_versions(self, artifact_id: int) -> list[dict]:
+        """All retained versions of an owned study note, oldest first."""
+        try:
+            artifact = self._study_note(artifact_id)
+            versions = sorted(
+                self._repo.list_artifact_versions(artifact.id),
+                key=lambda v: v.version_number,
+            )
+            return [
+                {
+                    "versionId": v.id,
+                    "versionNumber": v.version_number,
+                    "origin": v.origin,
+                    "isCurrent": v.id == artifact.current_version_id,
+                }
+                for v in versions
+            ]
+        except CrossWorkspaceError as exc:
+            raise StudyNoteArtifactNotFoundError("study note not found") from exc
+        except SQLAlchemyError as exc:
+            raise StudyNoteArtifactUnavailableError("study note service unavailable") from exc
+
     def save_edit(self, artifact_id: int, raw_content: object) -> StudyNoteVersion:
         """Insert a retained manual version and repoint current atomically.
 

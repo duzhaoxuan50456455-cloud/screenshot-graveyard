@@ -8,6 +8,8 @@ import {
   uploadScreenshots,
   type Screenshot,
 } from './api/client';
+import { ScreenshotDetail } from './ai/ScreenshotDetail';
+import { StudyNotesPanel } from './ai/StudyNotesPanel';
 
 type LoadPhase =
   | { phase: 'starting' }
@@ -31,6 +33,7 @@ export function Graveyard() {
   const [uploading, setUploading] = useState(false);
   const [notice, setNotice] = useState<Notice>(null);
   const [pendingId, setPendingId] = useState<number | null>(null);
+  const [openId, setOpenId] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const refresh = useCallback(async () => {
@@ -215,6 +218,14 @@ export function Graveyard() {
           )}
         </div>
         <div className="gy-card__actions">
+          <button
+            type="button"
+            className="gy-btn"
+            onClick={() => setOpenId(s.screenshotId)}
+            aria-label={`Open ${label} (consent and AI)`}
+          >
+            Open
+          </button>
           {kind === 'ghost' ? (
             <button
               type="button"
@@ -325,6 +336,16 @@ export function Graveyard() {
           )}
         </section>
       </div>
+
+      {openId !== null && screenshots.some((s) => s.screenshotId === openId) && (
+        <ScreenshotDetail
+          key={openId}
+          screenshot={screenshots.find((s) => s.screenshotId === openId) as Screenshot}
+          onClose={() => setOpenId(null)}
+        />
+      )}
+
+      <StudyNotesPanel screenshots={screenshots} />
     </section>
   );
 }

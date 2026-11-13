@@ -329,7 +329,7 @@ The properties are grouped into these reusable modules:
     `RUN_LIVE_VISION_SMOKE=1`; it never reads a Vault screenshot.
   - **Priority:** P0
 
-- [ ] 2.10 Build the AI UX
+- [x] 2.10 Build the AI UX
   - Show the privacy warning before analysis; require explicit consent before sending bytes; provide Revive; show status via text + non-color cues; allow editing category/Epitaph; provide study-note selection/view/export.
   - **Dependencies:** 2.5, 2.8, 2.9, 1.12
   - **Requirements:** 9.1, 9.3, 10.3, 11.5, 4.5, 5.5, 6.8

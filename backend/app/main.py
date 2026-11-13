@@ -24,6 +24,8 @@ from pathlib import Path
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+from typing import Literal
 
 from app.middleware.csrf import CSRFMiddleware
 from app.middleware.limits import (
@@ -44,6 +46,12 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 _FRONTEND_DIST = _REPO_ROOT / "frontend" / "dist"
 
 _NOT_FOUND = {"error": {"code": "not_found", "message": "Not Found"}}
+
+
+class ProviderModeResponse(BaseModel):
+    """Public, deliberately minimal AI-provider status contract."""
+
+    mode: Literal["fake", "openai"]
 
 
 def _build_api_router() -> APIRouter:
@@ -78,6 +86,11 @@ def _build_api_router() -> APIRouter:
                 },
             )
         return {"workspaceActive": getattr(request.state, "workspace_id", None) is not None}
+
+    @router.get("/ai/provider-mode", response_model=ProviderModeResponse)
+    def ai_provider_mode() -> ProviderModeResponse:
+        """Expose only the active public provider mode, never configuration."""
+        return ProviderModeResponse(mode=config.AI_PROVIDER)
 
     return router
 
@@ -241,6 +254,8 @@ def create_app(
     application.include_router(build_operations_router())
     from app.routers.classification import build_classification_router
     application.include_router(build_classification_router())
+    from app.routers.analysis import build_analysis_router
+    application.include_router(build_analysis_router())
     from app.routers.study_notes import build_study_notes_router
     application.include_router(build_study_notes_router())
     from app.routers.study_note_artifacts import build_study_note_artifacts_router

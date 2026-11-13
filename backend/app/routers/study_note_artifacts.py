@@ -57,6 +57,34 @@ def _version_dict(version) -> dict:
 def build_study_note_artifacts_router() -> APIRouter:
     router = APIRouter(prefix="/api/study-notes", tags=["study-notes"])
 
+    @router.get("", response_model=None)
+    def list_study_notes(request: Request):
+        workspace_id, err = _workspace(request)
+        if err is not None:
+            return err
+        session = get_session()
+        try:
+            return {"notes": StudyNoteArtifactService(session, workspace_id).list_notes()}
+        except StudyNoteArtifactUnavailableError:
+            return JSONResponse(status_code=503, content=_error_body("service_unavailable", "Service temporarily unavailable"))
+        finally:
+            session.close()
+
+    @router.get("/{artifact_id}/versions", response_model=None)
+    def list_study_note_versions(request: Request, artifact_id: int):
+        workspace_id, err = _workspace(request)
+        if err is not None:
+            return err
+        session = get_session()
+        try:
+            return {"versions": StudyNoteArtifactService(session, workspace_id).list_versions(artifact_id)}
+        except StudyNoteArtifactNotFoundError:
+            return JSONResponse(status_code=404, content=_error_body("not_found", "Not Found"))
+        except StudyNoteArtifactUnavailableError:
+            return JSONResponse(status_code=503, content=_error_body("service_unavailable", "Service temporarily unavailable"))
+        finally:
+            session.close()
+
     @router.get("/{artifact_id}", response_model=None)
     def get_study_note(request: Request, artifact_id: int, versionId: int | None = None):
         workspace_id, err = _workspace(request)

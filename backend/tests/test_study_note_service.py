@@ -319,6 +319,7 @@ def test_artifact_v1_refs_pointer_and_status_commit_together(ctx):
     ver = s.get(models.ArtifactVersion, art.current_version_id)
     assert ver.artifact_id == art.id and ver.version_number == 1
     assert s.get(models.Operation, op).status == "successful"
+    assert s.get(models.Operation, op).artifact_id == art.id
 
 
 @pytest.mark.parametrize("fail_on_call", [1, 2, 3])
