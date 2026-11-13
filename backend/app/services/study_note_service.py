@@ -43,6 +43,7 @@ from dataclasses import dataclass
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app import config
 from app.ai.adapter import AIAdapter, AIAdapterError
 from app.ai.schemas import StudyNoteResult
 from app.db.repository import WorkspaceRepository
@@ -127,11 +128,22 @@ class StudyNoteService:
         except ConsentServiceUnavailableError:
             return self._fail(operation_id, "AI processing unavailable")
 
-        # 3) Read originals (pure reads) in selection order.
+        # 3) Read originals (pure reads) in selection order. Stop before a
+        # provider-bound aggregate would be accumulated in memory; the adapter
+        # repeats these checks before Base64 expansion as defense in depth.
         images: list[tuple[int, bytes, str]] = []
+        total_input_bytes = 0
         try:
             for sid in ids:
                 original = self._vault.read_original(sid)
+                if (
+                    original.byte_size > config.AI_MAX_INPUT_IMAGE_BYTES
+                    or total_input_bytes + original.byte_size
+                    > config.AI_MAX_STUDY_INPUT_BYTES
+                ):
+                    images.clear()
+                    return self._fail(operation_id, "AI input exceeds configured limits")
+                total_input_bytes += original.byte_size
                 images.append((sid, original.data, original.mime_type))
         except (VaultScreenshotNotFoundError, VaultServiceError):
             return self._fail(operation_id, "Not found")

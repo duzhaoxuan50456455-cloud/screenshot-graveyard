@@ -17,6 +17,7 @@ from app.db.repository import WorkspaceRepository
 from app.services.operation_service import (
     OperationNotFoundError,
     OperationPersistenceError,
+    OperationQuotaExceededError,
     OperationService,
     OperationServiceUnavailableError,
     OperationTransitionError,
@@ -42,6 +43,19 @@ def test_pending_operation_has_only_an_approved_status(ctx):
     state = OperationService(session, workspace_a).create_pending("classify")
     assert state.status == "pending"
     assert state.status in {"pending", "successful", "failed", "uncertain"}
+
+
+def test_pending_operation_enforces_workspace_ai_quota_atomically(ctx, monkeypatch):
+    session, workspace_a, workspace_b = ctx
+    monkeypatch.setattr("app.services.operation_service.config.MAX_AI_CALLS_PER_WORKSPACE", 1)
+    service_a = OperationService(session, workspace_a)
+    service_a.create_pending("classify")
+    with pytest.raises(OperationQuotaExceededError, match="quota exceeded"):
+        service_a.create_pending("study_note")
+    # The rejected operation was never persisted, and another workspace retains
+    # its own independent allowance.
+    assert WorkspaceRepository(session, workspace_a).count_ai_operations() == 1
+    assert OperationService(session, workspace_b).create_pending("classify").status == "pending"
 
 
 def test_success_and_related_persistence_commit_together(ctx):

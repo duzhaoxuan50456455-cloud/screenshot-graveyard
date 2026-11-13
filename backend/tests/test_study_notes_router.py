@@ -130,6 +130,20 @@ def test_one_unconsented_screenshot_blocks_batch_403_zero_calls(client):
         assert s.scalar(select(func.count()).select_from(models.Artifact)) == 0
 
 
+def test_study_note_quota_rejection_prevents_pending_operation_and_adapter_call(client, monkeypatch):
+    c, eng, adapter = client
+    ids = _shots(c, 1)
+    monkeypatch.setattr(config, "MAX_AI_CALLS_PER_WORKSPACE", 0)
+    response = _post(c, ids)
+    assert response.status_code == 429
+    assert response.json() == {
+        "error": {"code": "quota_exceeded", "message": "AI operation quota exceeded"}
+    }
+    assert adapter.calls == 0
+    with Session(eng) as session:
+        assert session.scalar(select(func.count()).select_from(models.Operation)) == 0
+
+
 def test_consent_revoked_after_acceptance_before_execution(client, monkeypatch):
     c, eng, adapter = client
     ids = _shots(c, 3)

@@ -128,6 +128,21 @@ def test_classify_without_consent_403_and_zero_adapter_calls(client):
     assert adapter.calls == 0  # adapter NEVER invoked without consent
 
 
+def test_classify_quota_rejection_prevents_pending_operation_and_adapter_call(client, monkeypatch):
+    c, eng, adapter = client
+    sid = _upload(c)
+    _grant(c, sid, True)
+    monkeypatch.setattr(config, "MAX_AI_CALLS_PER_WORKSPACE", 0)
+    response = c.post(f"/api/screenshots/{sid}/classify", headers=HDRS)
+    assert response.status_code == 429
+    assert response.json() == {
+        "error": {"code": "quota_exceeded", "message": "AI operation quota exceeded"}
+    }
+    assert adapter.calls == 0
+    with Session(eng) as session:
+        assert session.scalar(select(func.count()).select_from(models.Operation)) == 0
+
+
 def test_classify_requires_csrf_header(client):
     c, _, adapter = client
     sid = _upload(c)

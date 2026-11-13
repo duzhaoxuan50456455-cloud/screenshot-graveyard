@@ -14,9 +14,34 @@ from __future__ import annotations
 
 from app.ai.adapter import AIAdapter
 from app.ai.fake_adapter import FakeAIAdapter
+from app import config
 
 # Default to the deterministic fake until a real provider adapter is approved.
 _adapter: AIAdapter = FakeAIAdapter()
+
+
+def build_configured_adapter() -> AIAdapter:
+    """Build the explicitly configured adapter without a silent fallback.
+
+    Importing the real SDK is intentionally deferred until ``AI_PROVIDER=openai``
+    so fake-only tests do not require a provider package, key, or network.
+    """
+    if config.AI_PROVIDER == "fake":
+        return FakeAIAdapter()
+    if config.AI_PROVIDER == "openai":
+        from app.ai.openai_vision_adapter import OpenAIVisionAdapter
+
+        return OpenAIVisionAdapter.from_config()
+    # Config validates this at import, but preserve fail-closed behavior if a
+    # test mutates config after import.
+    raise RuntimeError("unsupported AI provider configuration")
+
+
+def configure_ai_adapter() -> AIAdapter:
+    """Install the environment-selected adapter during application startup."""
+    adapter = build_configured_adapter()
+    set_ai_adapter(adapter)
+    return adapter
 
 
 def get_ai_adapter() -> AIAdapter:

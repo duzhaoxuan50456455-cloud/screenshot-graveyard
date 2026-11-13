@@ -24,7 +24,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.db import models
-from app.db.repository import CrossWorkspaceError, WorkspaceRepository
+from app import config
+from app.db.repository import CrossWorkspaceError, QuotaExceededError, WorkspaceRepository
 
 
 AI_OPERATION_KINDS = frozenset({"classify", "study_note", "redo"})
@@ -48,6 +49,10 @@ class OperationPersistenceError(OperationServiceError):
 
 class OperationTransitionError(OperationServiceError):
     """A terminal operation cannot be transitioned again."""
+
+
+class OperationQuotaExceededError(OperationServiceError):
+    """The trusted workspace has exhausted its bounded AI-call allowance."""
 
 
 @dataclass(frozen=True)
@@ -83,8 +88,19 @@ class OperationService:
         if kind not in AI_OPERATION_KINDS:
             raise ValueError("invalid operation kind")
         try:
+            # The operation row is the metered unit. Lock before count+insert so
+            # concurrent accepts cannot exceed the per-workspace AI-call cap.
+            if self._repo.lock_workspace() is None:
+                raise OperationServiceUnavailableError("operation service unavailable")
+            self._repo.ensure_ai_quota(config.MAX_AI_CALLS_PER_WORKSPACE)
             operation = self._repo.create_operation(kind=kind, status="pending")
             self._session.commit()
+        except QuotaExceededError as exc:
+            self._session.rollback()
+            raise OperationQuotaExceededError("AI operation quota exceeded") from exc
+        except OperationServiceUnavailableError:
+            self._session.rollback()
+            raise
         except SQLAlchemyError as exc:
             self._session.rollback()
             raise OperationServiceUnavailableError("operation service unavailable") from exc

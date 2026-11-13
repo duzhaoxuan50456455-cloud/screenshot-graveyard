@@ -33,6 +33,7 @@ from app.services.consent_service import (
     ScreenshotNotFoundError as ConsentScreenshotNotFoundError,
 )
 from app.services.operation_service import (
+    OperationQuotaExceededError,
     OperationService,
     OperationServiceUnavailableError,
 )
@@ -119,6 +120,11 @@ def build_classification_router() -> APIRouter:
             operations = OperationService(session, workspace_id)
             try:
                 operation = operations.create_pending("classify")
+            except OperationQuotaExceededError:
+                return JSONResponse(
+                    status_code=429,
+                    content=_error_body("quota_exceeded", "AI operation quota exceeded"),
+                )
             except OperationServiceUnavailableError:
                 return JSONResponse(
                     status_code=503,

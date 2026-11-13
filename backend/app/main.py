@@ -152,6 +152,11 @@ def create_app(
         A :class:`fastapi.FastAPI` instance with the API router registered and,
         when ``frontend/dist`` exists, the built SPA served at the same origin.
     """
+    # Fail closed at startup for real-provider configuration errors.  Fake mode
+    # stays network-free and has no credential requirement.
+    from app.ai.provider import configure_ai_adapter
+    configure_ai_adapter()
+
     recovery_session_factory = workspace_session_factory or SessionLocal
     stale_after_seconds = (
         config.STALE_PENDING_OPERATION_SECONDS

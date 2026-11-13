@@ -156,6 +156,57 @@ AI_ADAPTER_TIMEOUT_SECONDS: float = _positive_finite_float(
     setting="AI_ADAPTER_TIMEOUT_SECONDS",
 )
 
+# ---- AI provider (Task 2.9a) ----
+# The fake is deliberately the safe default: it is deterministic, network-free,
+# and requires no credential.  A real provider is an explicit deployment choice.
+AI_PROVIDER: str = os.environ.get("AI_PROVIDER", "fake").strip().lower()
+if AI_PROVIDER not in {"fake", "openai"}:
+    raise RuntimeError("AI_PROVIDER must be either 'fake' or 'openai'")
+
+# Do not validate this in fake mode: local/unit-test usage must never require a
+# provider credential.  The provider factory validates it before real mode starts.
+OPENAI_API_KEY: str | None = os.environ.get("OPENAI_API_KEY")
+# A documented vision-capable model is configurable rather than embedded in the
+# adapter call. Deployments should pin a currently supported model explicitly.
+OPENAI_MODEL: str = os.environ.get("OPENAI_MODEL", "gpt-4.1-mini").strip()
+
+
+def _positive_int(raw: str, *, setting: str) -> int:
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise RuntimeError(f"{setting} must be a positive integer") from exc
+    if value <= 0:
+        raise RuntimeError(f"{setting} must be a positive integer")
+    return value
+
+
+# These caps apply before Base64 expansion.  They deliberately sit below the
+# Vault upload limit; a safely stored original can still be too large to send.
+AI_MAX_INPUT_IMAGE_BYTES: int = _positive_int(
+    os.environ.get("AI_MAX_INPUT_IMAGE_BYTES", str(4 * 1024 * 1024)),
+    setting="AI_MAX_INPUT_IMAGE_BYTES",
+)
+AI_MAX_STUDY_INPUT_BYTES: int = _positive_int(
+    os.environ.get("AI_MAX_STUDY_INPUT_BYTES", str(12 * 1024 * 1024)),
+    setting="AI_MAX_STUDY_INPUT_BYTES",
+)
+AI_MAX_STUDY_IMAGE_COUNT: int = _positive_int(
+    os.environ.get("AI_MAX_STUDY_IMAGE_COUNT", "12"),
+    setting="AI_MAX_STUDY_IMAGE_COUNT",
+)
+AI_CLASSIFICATION_MAX_OUTPUT_TOKENS: int = _positive_int(
+    os.environ.get("AI_CLASSIFICATION_MAX_OUTPUT_TOKENS", "600"),
+    setting="AI_CLASSIFICATION_MAX_OUTPUT_TOKENS",
+)
+AI_STUDY_NOTE_MAX_OUTPUT_TOKENS: int = _positive_int(
+    os.environ.get("AI_STUDY_NOTE_MAX_OUTPUT_TOKENS", "2000"),
+    setting="AI_STUDY_NOTE_MAX_OUTPUT_TOKENS",
+)
+AI_PROVIDER_MAX_RETRIES: int = int(os.environ.get("AI_PROVIDER_MAX_RETRIES", "0"))
+if AI_PROVIDER_MAX_RETRIES != 0:
+    raise RuntimeError("AI_PROVIDER_MAX_RETRIES must be 0; automatic retries are disabled")
+
 # BackgroundTasks are intentionally non-durable.  Startup and the managed
 # lifespan loop recover only operations older than this conservative window;
 # the normal adapter timeout is much shorter.  Values are server-side and

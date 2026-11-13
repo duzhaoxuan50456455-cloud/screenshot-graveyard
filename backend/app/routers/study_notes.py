@@ -27,6 +27,7 @@ from app.services.consent_service import (
     ScreenshotNotFoundError as ConsentScreenshotNotFoundError,
 )
 from app.services.operation_service import (
+    OperationQuotaExceededError,
     OperationService,
     OperationServiceUnavailableError,
 )
@@ -144,6 +145,11 @@ def build_study_notes_router() -> APIRouter:
 
             try:
                 operation = OperationService(session, workspace_id).create_pending("study_note")
+            except OperationQuotaExceededError:
+                return JSONResponse(
+                    status_code=429,
+                    content=_error_body("quota_exceeded", "AI operation quota exceeded"),
+                )
             except OperationServiceUnavailableError:
                 return JSONResponse(
                     status_code=503,

@@ -308,6 +308,27 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** tests simulate a crash mid-operation and a timeout and assert the sweep marks the operation `failed`/`uncertain` with sources intact.
   - **Priority:** P0
 
+- [x] 2.9a Implement a real vision-capable `AIAdapter` (P0 launch blocker)
+  - Add an opt-in OpenAI Responses API adapter behind the existing `AIAdapter`
+    Protocol. Keep `FakeAIAdapter` as the network-free default. Send only
+    service-authorized in-memory bytes as temporary Base64 data URLs; never use
+    Vault URLs or provider Files. Use structured output plus independent
+    Pydantic validation, preserve ordered Study Note source references, express
+    uncertainty, bound bytes/count/output/deadline, disable automatic retries,
+    and map provider failures to safe adapter errors. Real mode fails closed on
+    missing/invalid configuration and response storage is explicitly disabled.
+  - **Dependencies:** 2.1, 2.2, 2.3, 2.5, 2.7, 2.9
+  - **Requirements:** 4.1–4.4, 5.1–5.4, 6.4–6.7, 8.1–8.3, 9.2, 9.4, 9.8,
+    13.1–13.4, INV-1, INV-4, INV-7, P12, P13, P14
+  - **Acceptance test / expected output:** mocked tests cover schema-valid
+    classification/study-note parsing, ordered input/reference preservation,
+    configuration failure, byte/count/token/retry bounds, timeout and
+    auth/rate-limit/server/connection errors, malformed/refused/incomplete
+    output, and no partial persistence through existing services. An opt-in,
+    normally skipped smoke test sends only a generated synthetic image when
+    `RUN_LIVE_VISION_SMOKE=1`; it never reads a Vault screenshot.
+  - **Priority:** P0
+
 - [ ] 2.10 Build the AI UX
   - Show the privacy warning before analysis; require explicit consent before sending bytes; provide Revive; show status via text + non-color cues; allow editing category/Epitaph; provide study-note selection/view/export.
   - **Dependencies:** 2.5, 2.8, 2.9, 1.12

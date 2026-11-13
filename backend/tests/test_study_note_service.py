@@ -167,6 +167,28 @@ def test_any_missing_consent_blocks_whole_batch_zero_adapter_calls(ctx):
     assert _counts(s, wa) == (0, 0, 0)
 
 
+def test_aggregate_ai_input_cap_stops_before_reading_later_selected_originals(ctx, monkeypatch):
+    s, store, wa, _ = ctx
+    ids, vault = _shots(s, store, wa, n=4)
+    image_size = vault.read_original(ids[0]).byte_size
+    monkeypatch.setattr("app.services.study_note_service.config.AI_MAX_INPUT_IMAGE_BYTES", image_size)
+    monkeypatch.setattr("app.services.study_note_service.config.AI_MAX_STUDY_INPUT_BYTES", image_size * 2)
+    reads = []
+    original_read = vault.read_original
+
+    def record_read(screenshot_id):
+        reads.append(screenshot_id)
+        return original_read(screenshot_id)
+
+    monkeypatch.setattr(vault, "read_original", record_read)
+    adapter = ScriptedAdapter(good_note)
+    out = _svc(s, wa, adapter, vault).run_generation(ids, _op(s, wa))
+    assert reads == ids[:3]  # third read detects the cap; fourth is never read
+    assert adapter.calls == 0
+    assert out.operation.status == "failed"
+    assert _counts(s, wa) == (0, 0, 0)
+
+
 def test_consent_revoked_before_execution_blocks_adapter(ctx):
     s, store, wa, _ = ctx
     ids, v = _shots(s, store, wa)
