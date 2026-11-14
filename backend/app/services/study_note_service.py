@@ -47,6 +47,7 @@ from app import config
 from app.ai.adapter import AIAdapter, AIAdapterError
 from app.ai.schemas import StudyNoteResult
 from app.db.repository import WorkspaceRepository
+from app.services.artifact_version_service import ArtifactVersionService
 from app.services.consent_service import (
     ConsentRequiredError,
     ConsentService,
@@ -68,7 +69,6 @@ from app.services.vault_service import ScreenshotNotFoundError as VaultScreensho
 
 _KIND_STUDY_NOTE = "study_note"
 _ORIGIN_AI_GENERATE = "ai_generate"
-_FIRST_VERSION = 1
 
 
 @dataclass(frozen=True)
@@ -97,6 +97,7 @@ class StudyNoteService:
         self._operations = OperationService(session, workspace_id)
         self._vault = vault or VaultService(session, workspace_id)
         self._repo = WorkspaceRepository(session, workspace_id)
+        self._versions = ArtifactVersionService(session, workspace_id)
 
     def run_generation(
         self, screenshot_ids: list[int], operation_id: int
@@ -197,15 +198,11 @@ class StudyNoteService:
 
         def _persist() -> int:
             art = self._repo.create_artifact(kind=_KIND_STUDY_NOTE)
-            ver = self._repo.add_artifact_version(
-                artifact_id=art.id,
-                version_number=_FIRST_VERSION,
-                origin=_ORIGIN_AI_GENERATE,
-                content_json=self._note_json(result, ids),
+            self._versions.create_first_version(
+                art.id, self._note_json(result, ids), _ORIGIN_AI_GENERATE
             )
             for sid in ids:  # selection order
                 self._repo.add_source_reference(artifact_id=art.id, screenshot_id=sid)
-            self._repo.set_current_version(art.id, ver.id)
             created["artifact_id"] = art.id
             return art.id
 

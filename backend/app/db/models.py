@@ -22,6 +22,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from sqlalchemy import event
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -221,3 +222,21 @@ class Operation(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
     )
+
+
+class AppendOnlyViolationError(Exception):
+    """Raised on any attempt to UPDATE or DELETE a retained artifact version."""
+
+
+@event.listens_for(ArtifactVersion, "before_update")
+def _forbid_version_update(mapper, connection, target) -> None:  # noqa: ANN001
+    # INV-5/INV-6: a retained version is immutable. Edits and redos INSERT a new
+    # version; there is deliberately no UPDATE path to content_json (or any other
+    # column) of an existing row. This guards ORM flushes; the service layer and a
+    # source-scan test guard against bulk UPDATE statements that bypass the ORM.
+    raise AppendOnlyViolationError("artifact versions are append-only")
+
+
+@event.listens_for(ArtifactVersion, "before_delete")
+def _forbid_version_delete(mapper, connection, target) -> None:  # noqa: ANN001
+    raise AppendOnlyViolationError("artifact versions are never deleted")

@@ -52,6 +52,7 @@ from sqlalchemy.orm import Session
 
 from app.ai.adapter import AIAdapter, AIAdapterError
 from app.ai.schemas import ClassificationResult
+from app.services.artifact_version_service import ArtifactVersionService
 from app.services.consent_service import (
     ConsentRequiredError,
     ConsentService,
@@ -74,7 +75,6 @@ _KIND_CLASSIFICATION = "classification"
 _KIND_EPITAPH = "epitaph"
 # First AI-generated version origin (models.py: origin in {ai_generate, ai_redo, manual_edit}).
 _ORIGIN_AI_GENERATE = "ai_generate"
-_FIRST_VERSION = 1
 
 
 class ClassificationServiceError(Exception):
@@ -110,6 +110,7 @@ class ClassificationService:
         self._operations = OperationService(session, workspace_id)
         self._vault = vault or VaultService(session, workspace_id)
         self._repo = self._operations._repo  # workspace-scoped repository
+        self._versions = ArtifactVersionService(session, workspace_id)
 
     def run_classification(
         self, screenshot_id: int, operation_id: int
@@ -209,17 +210,12 @@ class ClassificationService:
         def _persist() -> None:
             class_art = self._repo.create_artifact(kind=_KIND_CLASSIFICATION)
             epi_art = self._repo.create_artifact(kind=_KIND_EPITAPH)
-            class_ver = self._repo.add_artifact_version(
-                artifact_id=class_art.id,
-                version_number=_FIRST_VERSION,
-                origin=_ORIGIN_AI_GENERATE,
-                content_json=self._classification_json(result),
+            # Version 1 + current pointer via the shared append-only boundary.
+            self._versions.create_first_version(
+                class_art.id, self._classification_json(result), _ORIGIN_AI_GENERATE
             )
-            epi_ver = self._repo.add_artifact_version(
-                artifact_id=epi_art.id,
-                version_number=_FIRST_VERSION,
-                origin=_ORIGIN_AI_GENERATE,
-                content_json=self._epitaph_json(result),
+            self._versions.create_first_version(
+                epi_art.id, self._epitaph_json(result), _ORIGIN_AI_GENERATE
             )
             # Provenance: both artifacts reference the source screenshot (INV-7).
             self._repo.add_source_reference(
@@ -228,9 +224,6 @@ class ClassificationService:
             self._repo.add_source_reference(
                 artifact_id=epi_art.id, screenshot_id=screenshot_id
             )
-            # Repoint each artifact at its freshly-created current version.
-            self._repo.set_current_version(class_art.id, class_ver.id)
-            self._repo.set_current_version(epi_art.id, epi_ver.id)
             created["classification_artifact_id"] = class_art.id
             created["epitaph_artifact_id"] = epi_art.id
 

@@ -277,6 +277,21 @@ class WorkspaceRepository:
         self._session.flush()
         return version
 
+    def max_version_number(self, artifact_id: int) -> int:
+        """Highest retained version number of an OWNED artifact (0 if none).
+
+        Computed by the database (not by loading every row) and scoped by both
+        artifact and workspace.
+        """
+        from sqlalchemy import func
+
+        self._require_owned(models.Artifact, artifact_id)
+        stmt = select(func.max(models.ArtifactVersion.version_number)).where(
+            models.ArtifactVersion.workspace_id == self._workspace_id,
+            models.ArtifactVersion.artifact_id == artifact_id,
+        )
+        return int(self._session.scalar(stmt) or 0)
+
     def get_artifact_version(self, version_id: int) -> models.ArtifactVersion | None:
         return self._get_owned(models.ArtifactVersion, version_id)
 

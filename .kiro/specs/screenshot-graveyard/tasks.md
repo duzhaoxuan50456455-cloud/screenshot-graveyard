@@ -352,7 +352,7 @@ The properties are grouped into these reusable modules:
 
 ### Phase 3 — November 14–19: Resurrection / Reversible AI (P0)
 
-- [ ] 3.1 Implement append-only artifact versions
+- [x] 3.1 Implement append-only artifact versions
   - INSERT-only `artifact_version` with `UNIQUE(artifact_id, version_number)` and no UPDATE path to `content_json`; maintain the `current_version_id` pointer.
   - **Learn:** append-only history with a current-version pointer.
   - **Dependencies:** 1.1, 2.5

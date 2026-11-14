@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.ai.schemas import StudyNoteResult
 from app.db.repository import CrossWorkspaceError, WorkspaceRepository
+from app.services.artifact_version_service import ArtifactVersionService
 
 _KIND_STUDY_NOTE = "study_note"
 _ORIGIN_MANUAL_EDIT = "manual_edit"
@@ -80,6 +81,7 @@ class StudyNoteArtifactService:
             raise ValueError("workspace_id is required")
         self._session = session
         self._repo = WorkspaceRepository(session, workspace_id)
+        self._versions = ArtifactVersionService(session, workspace_id)
 
     def get_version(
         self, artifact_id: int, version_id: int | None = None
@@ -177,18 +179,14 @@ class StudyNoteArtifactService:
                 raise StudyNoteArtifactNotFoundError("study note not found")
             artifact = self._study_note(artifact_id)
             source_ids = self._source_ids(artifact.id)
-            versions = self._repo.list_artifact_versions(artifact.id)
-            next_number = max((v.version_number for v in versions), default=0) + 1
             content = StudyNoteResult(
                 **editable.model_dump(), references=list(source_ids)
             )
-            version = self._repo.add_artifact_version(
-                artifact_id=artifact.id,
-                version_number=next_number,
-                origin=_ORIGIN_MANUAL_EDIT,
-                content_json=json.dumps(content.model_dump(), ensure_ascii=False),
+            version = self._versions.append_version(
+                artifact.id,
+                json.dumps(content.model_dump(), ensure_ascii=False),
+                _ORIGIN_MANUAL_EDIT,
             )
-            self._repo.set_current_version(artifact.id, version.id)
             self._session.commit()
             return StudyNoteVersion(
                 artifact_id=artifact.id,

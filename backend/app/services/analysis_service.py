@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.ai.schemas import Category
 from app.db.repository import CrossWorkspaceError, WorkspaceRepository
+from app.services.artifact_version_service import ArtifactVersionService
 
 _KIND_CLASSIFICATION = "classification"
 _KIND_EPITAPH = "epitaph"
@@ -74,6 +75,7 @@ class AnalysisService:
             raise ValueError("workspace_id is required")
         self._session = session
         self._repo = WorkspaceRepository(session, workspace_id)
+        self._versions = ArtifactVersionService(session, workspace_id)
 
     # ------------------------------------------------------------------ reads
 
@@ -172,12 +174,6 @@ class AnalysisService:
             raise AnalysisUnavailableError("analysis service unavailable") from exc
 
     def _append_version(self, artifact, content: dict) -> None:
-        versions = self._repo.list_artifact_versions(artifact.id)
-        next_number = max((v.version_number for v in versions), default=0) + 1
-        version = self._repo.add_artifact_version(
-            artifact_id=artifact.id,
-            version_number=next_number,
-            origin=_ORIGIN_MANUAL_EDIT,
-            content_json=json.dumps(content, ensure_ascii=False),
+        self._versions.append_version(
+            artifact.id, json.dumps(content, ensure_ascii=False), _ORIGIN_MANUAL_EDIT
         )
-        self._repo.set_current_version(artifact.id, version.id)
