@@ -343,7 +343,7 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** PBT-AI and the completed PBT-ISOLATION properties pass ≥100 iterations each, including the schema gate, uncertainty representation, atomic co-persistence, consent gate, status lifecycle, and no-secrets-in-logs.
   - **Priority:** P0
 
-- [ ] 2.12 Checkpoint — ensure all tests pass
+- [x] 2.12 Checkpoint — ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
   - **Dependencies:** 2.10, 2.11
   - **Requirements:** 14.1
