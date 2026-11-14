@@ -336,7 +336,7 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** Vitest tests assert the privacy warning precedes analysis, consent is required before any send, status is conveyed without relying on color, and category/Epitaph are editable.
   - **Priority:** P0
 
-- [ ] 2.11 Write the PBT-AI module and complete PBT-ISOLATION (REQUIRED)
+- [x] 2.11 Write the PBT-AI module and complete PBT-ISOLATION (REQUIRED)
   - Implement Properties P12, P13, P14 (PBT-AI) and complete PBT-ISOLATION parts P22, P23, P25 (and P24 beyond the Phase 1 seed) with Hypothesis ≥100 iterations. *(CORRECTION 3 — REQUIRED, non-optional: covers failure safety via status/preserve-on-failure and the consent gate.)*
   - **Dependencies:** 2.5, 2.6, 2.7, 2.8, 2.9, 1.15
   - **Requirements:** 4.1, 4.2, 4.4, 5.1, 5.3, 8.2, 8.3, 9.2, 9.4, 9.8, INV-1, INV-4, P12, P13, P14, P22, P23, P24, P25
