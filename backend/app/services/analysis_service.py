@@ -87,6 +87,20 @@ class AnalysisService:
         except SQLAlchemyError as exc:
             raise AnalysisUnavailableError("analysis service unavailable") from exc
 
+    def artifact_ids(self, screenshot_id: int) -> tuple[int, int]:
+        """(classification_artifact_id, epitaph_artifact_id) of the CURRENT analysis.
+
+        The same newest-of-each-kind pair that `get_analysis` and manual edits use,
+        so an AI Redo always targets exactly the artifacts the user sees (Task 3.3).
+        """
+        try:
+            class_art, epi_art = self._artifacts(screenshot_id)
+            return class_art.id, epi_art.id
+        except CrossWorkspaceError as exc:
+            raise AnalysisNotFoundError("analysis not found") from exc
+        except SQLAlchemyError as exc:
+            raise AnalysisUnavailableError("analysis service unavailable") from exc
+
     # ------------------------------------------------------------------ edits
 
     def save_edit(self, screenshot_id: int, raw_edit: object) -> AnalysisView:

@@ -41,13 +41,15 @@ import json
 from dataclasses import dataclass
 
 from pydantic import BaseModel
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app import config
 from app.ai.adapter import AIAdapter, AIAdapterError
+from app.ai.redo_instructions import RedoInstructionsError, normalize_redo_instructions
 from app.ai.schemas import StudyNoteResult
 from app.db.repository import WorkspaceRepository
-from app.services.artifact_version_service import ArtifactVersionService
+from app.services.artifact_version_service import ORIGIN_AI_REDO, ArtifactVersionService
 from app.services.consent_service import (
     ConsentRequiredError,
     ConsentService,
@@ -68,6 +70,7 @@ from app.services.vault_service import VaultService, VaultServiceError
 from app.services.vault_service import ScreenshotNotFoundError as VaultScreenshotNotFoundError
 
 _KIND_STUDY_NOTE = "study_note"
+_KIND_REDO = "redo"
 _ORIGIN_AI_GENERATE = "ai_generate"
 
 
@@ -118,6 +121,49 @@ class StudyNoteService:
         except StudySelectionError:
             return self._fail(operation_id, "Invalid selection")
 
+        # 2-6) Consent, read, ONE adapter call, strict validation.
+        result = self._authorize_and_generate(ids, operation_id, None)
+        if isinstance(result, StudyNoteOutcome):
+            return result
+
+        # 7) Atomic persistence: note + v1 + source refs + pointer + status.
+        uncertain = len(result.uncertain_content) > 0
+        created: dict[str, int] = {}
+
+        def _persist() -> int:
+            art = self._repo.create_artifact(kind=_KIND_STUDY_NOTE)
+            self._versions.create_first_version(
+                art.id, self._note_json(result, ids), _ORIGIN_AI_GENERATE
+            )
+            for sid in ids:  # selection order
+                self._repo.add_source_reference(artifact_id=art.id, screenshot_id=sid)
+            created["artifact_id"] = art.id
+            return art.id
+
+        try:
+            op = self._operations.complete_after_persistence(
+                operation_id,
+                _persist,
+                terminal_status="uncertain" if uncertain else "successful",
+            )
+        except OperationPersistenceError:
+            return StudyNoteOutcome(operation=self._operations.get(operation_id))
+        except OperationTransitionError:
+            # A concurrent worker finished first; its result stands.
+            return StudyNoteOutcome(operation=self._operations.get(operation_id))
+        return StudyNoteOutcome(operation=op, artifact_id=created.get("artifact_id"))
+
+    def _authorize_and_generate(
+        self, ids: list[int], operation_id: int, instructions: str | None
+    ) -> "StudyNoteResult | StudyNoteOutcome":
+        """Shared by initial generation and AI Redo (Task 3.3).
+
+        Consent for EVERY source is (re)checked, originals are read, exactly ONE
+        adapter call is made, and the answer is strictly validated. Returns the
+        validated result, or the already-recorded terminal outcome on any failure.
+        ``instructions`` (Redo only) is passed to the adapter as an explicit
+        keyword; initial generation keeps the original one-argument call.
+        """
         # 2) Consent for EVERY selected screenshot, before any bytes are read.
         try:
             for sid in ids:
@@ -172,7 +218,10 @@ class StudyNoteService:
         except OperationTransitionError:
             return StudyNoteOutcome(operation=self._operations.get(operation_id))
         try:
-            raw = self._adapter.study_note(images)
+            if instructions is None:
+                raw = self._adapter.study_note(images)
+            else:
+                raw = self._adapter.study_note(images, instructions=instructions)
         except AIAdapterError:
             return self._fail(operation_id, "AI analysis failed")
         except Exception:
@@ -192,19 +241,73 @@ class StudyNoteService:
         if result.references != ids:
             return self._fail(operation_id, "AI output references invalid")
 
-        # 7) Atomic persistence: note + v1 + source refs + pointer + status.
+        return result
+
+    def run_redo(
+        self, artifact_id: int, operation_id: int, instructions: str | None
+    ) -> StudyNoteOutcome:
+        """Execute one AI Redo of an existing Study Note (Req 7.3, 7.6, 7.7).
+
+        APPENDS a new ``ai_redo`` version through the shared append-only
+        boundary. Earlier versions (including manual edits) are never modified or
+        removed, the source references are not touched, and the pointer moves only
+        in the same commit that makes the operation terminal. The provider sees
+        ONLY the original screenshots and the user's instructions: the current
+        content and prior versions are never sent.
+        """
+        # Claim the in-process execution slot before inspecting ``pending``.
+        # The transactional completion lock alone happens too late to prevent
+        # two duplicate BackgroundTasks from making two provider calls.
+        with self._operations.exclusive_execution(operation_id):
+            return self._run_redo_exclusively(artifact_id, operation_id, instructions)
+
+    def _run_redo_exclusively(
+        self, artifact_id: int, operation_id: int, instructions: str | None
+    ) -> StudyNoteOutcome:
+        # 0) Only a pending `redo` operation may execute (no duplicate provider call).
+        current = self._operations.get(operation_id)
+        if current.kind != _KIND_REDO or current.status != "pending":
+            return StudyNoteOutcome(operation=current)
+
+        # Instructions are untrusted; re-validate even though the route did.
+        try:
+            instructions = normalize_redo_instructions(instructions)
+        except RedoInstructionsError:
+            return self._fail(operation_id, "Invalid instructions")
+
+        # 1) Resolve the target ONLY within the trusted workspace. Foreign,
+        #    missing, wrong-kind and never-generated artifacts are one answer.
+        try:
+            artifact = self._repo.get_artifact(artifact_id)
+            if (
+                artifact is None
+                or artifact.kind != _KIND_STUDY_NOTE
+                or artifact.current_version_id is None
+            ):
+                return self._fail(operation_id, "Not found")
+            # Provenance order == the user's original selection order (INV-7).
+            ids = [r.screenshot_id for r in self._repo.list_source_references(artifact.id)]
+        except SQLAlchemyError:
+            self._session.rollback()
+            return self._fail(operation_id, "AI processing unavailable")
+        try:
+            self._selection.validate_selection(ids)
+        except StudySelectionError:
+            return self._fail(operation_id, "Invalid selection")
+
+        # 2-6) Consent for EVERY source, read, one adapter call, strict validation.
+        result = self._authorize_and_generate(ids, operation_id, instructions)
+        if isinstance(result, StudyNoteOutcome):
+            return result
+
+        # 7) Atomic: new ai_redo version + pointer + operation status, or nothing.
         uncertain = len(result.uncertain_content) > 0
-        created: dict[str, int] = {}
 
         def _persist() -> int:
-            art = self._repo.create_artifact(kind=_KIND_STUDY_NOTE)
-            self._versions.create_first_version(
-                art.id, self._note_json(result, ids), _ORIGIN_AI_GENERATE
+            self._versions.append_version(
+                artifact.id, self._note_json(result, ids), ORIGIN_AI_REDO
             )
-            for sid in ids:  # selection order
-                self._repo.add_source_reference(artifact_id=art.id, screenshot_id=sid)
-            created["artifact_id"] = art.id
-            return art.id
+            return artifact.id
 
         try:
             op = self._operations.complete_after_persistence(
@@ -212,12 +315,9 @@ class StudyNoteService:
                 _persist,
                 terminal_status="uncertain" if uncertain else "successful",
             )
-        except OperationPersistenceError:
+        except (OperationPersistenceError, OperationTransitionError):
             return StudyNoteOutcome(operation=self._operations.get(operation_id))
-        except OperationTransitionError:
-            # A concurrent worker finished first; its result stands.
-            return StudyNoteOutcome(operation=self._operations.get(operation_id))
-        return StudyNoteOutcome(operation=op, artifact_id=created.get("artifact_id"))
+        return StudyNoteOutcome(operation=op, artifact_id=artifact.id)
 
     # ----------------------------------------------------------------- helpers
 

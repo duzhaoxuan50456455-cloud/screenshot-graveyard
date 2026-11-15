@@ -16,8 +16,10 @@ study-note screenshot) using :class:`ConsentService`.
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from threading import Lock
 
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
@@ -29,6 +31,26 @@ from app.db.repository import CrossWorkspaceError, QuotaExceededError, Workspace
 
 
 AI_OPERATION_KINDS = frozenset({"classify", "study_note", "redo"})
+
+
+@dataclass
+class _ExecutionGate:
+    """One in-process exclusive gate for one trusted operation.
+
+    Lifecycle status alone cannot claim an operation before a worker enters the
+    provider: two BackgroundTasks could otherwise both observe ``pending`` and
+    make duplicate provider calls before either reaches the transactional
+    completion lock. This gate is intentionally process-local; the existing
+    architecture has no distributed worker lease, which remains a deployment
+    limitation rather than a reason to duplicate an external AI request.
+    """
+
+    lock: Lock
+    users: int = 0
+
+
+_execution_gates_guard = Lock()
+_execution_gates: dict[tuple[int, int], _ExecutionGate] = {}
 
 
 class OperationServiceError(Exception):
@@ -117,6 +139,33 @@ class OperationService:
         if operation is None:
             raise OperationNotFoundError("operation not found")
         return self._state(operation)
+
+    @contextmanager
+    def exclusive_execution(self, operation_id: int):
+        """Serialize duplicate in-process workers before any provider call.
+
+        Callers acquire this around the entire pending-state check and provider
+        boundary. Waiters retain a reference before blocking, so the registry
+        cannot discard a gate while another same-operation worker is about to
+        use it. This does not provide a cross-process/database lease; that
+        durability work remains outside the in-process MVP architecture.
+        """
+        key = (self._repo.workspace_id, operation_id)
+        with _execution_gates_guard:
+            gate = _execution_gates.get(key)
+            if gate is None:
+                gate = _ExecutionGate(lock=Lock())
+                _execution_gates[key] = gate
+            gate.users += 1
+        gate.lock.acquire()
+        try:
+            yield
+        finally:
+            gate.lock.release()
+            with _execution_gates_guard:
+                gate.users -= 1
+                if gate.users == 0 and _execution_gates.get(key) is gate:
+                    del _execution_gates[key]
 
     def set_terminal_status(
         self, operation_id: int, status: str, error_detail: str | None = None

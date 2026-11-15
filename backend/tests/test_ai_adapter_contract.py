@@ -137,10 +137,16 @@ def test_adapter_protocol_methods_exist_with_expected_signatures():
     assert hasattr(AIAdapter, "study_note")
     # Signatures match the design contract.
     ce = inspect.signature(AIAdapter.classify_and_epitaph)
-    assert list(ce.parameters)[1:] == ["image_bytes", "mime"]
+    assert list(ce.parameters)[1:3] == ["image_bytes", "mime"]
+    # Task 3.3: AI Redo adds ONE optional keyword-only extension; initial
+    # generation calls (without it) remain valid.
+    assert ce.parameters["instructions"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert ce.parameters["instructions"].default is None
     assert get_type_hints(AIAdapter.classify_and_epitaph)["return"] is ClassificationResult
     sn = inspect.signature(AIAdapter.study_note)
-    assert list(sn.parameters)[1:] == ["images"]
+    assert list(sn.parameters)[1:2] == ["images"]
+    assert sn.parameters["instructions"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert sn.parameters["instructions"].default is None
     assert get_type_hints(AIAdapter.study_note)["return"] is StudyNoteResult
 
 

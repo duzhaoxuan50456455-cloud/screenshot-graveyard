@@ -61,19 +61,28 @@ class AIAdapter(Protocol):
     """
 
     def classify_and_epitaph(
-        self, image_bytes: bytes, mime: str
+        self, image_bytes: bytes, mime: str, *, instructions: str | None = None
     ) -> ClassificationResult:
         """Classify a single screenshot into one of the six categories AND
-        produce its Epitaph in the SAME call (Req 4.1, 5.1)."""
+        produce its Epitaph in the SAME call (Req 4.1, 5.1).
+
+        ``instructions`` is set ONLY by an AI Redo (Req 7.7). It is untrusted user
+        text that may steer emphasis or wording; it can never change the schema,
+        categories, or any safety rule. Initial generation never passes it.
+        """
         ...
 
     def study_note(
-        self, images: list[tuple[int, bytes, str]]
+        self,
+        images: list[tuple[int, bytes, str]],
+        *,
+        instructions: str | None = None,
     ) -> StudyNoteResult:
         """Generate one structured study note from the selected screenshots.
 
         `images` is a list of (screenshot_id, image_bytes, mime) tuples; the
         screenshot ids flow through to `StudyNoteResult.references` to preserve
-        provenance (INV-7).
+        provenance (INV-7). ``instructions`` has the same untrusted, Redo-only
+        meaning as for `classify_and_epitaph`.
         """
         ...

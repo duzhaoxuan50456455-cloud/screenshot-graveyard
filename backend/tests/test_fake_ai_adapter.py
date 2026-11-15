@@ -23,12 +23,20 @@ _IMAGES = [(7, b"not-an-image", "image/png"), (11, b"also-not-an-image", "image/
 
 
 def test_fake_method_signatures_and_return_annotations_match_the_protocol():
+    # Compare against the Protocol itself (Task 3.3 added the optional,
+    # keyword-only AI Redo `instructions`), so drift in either direction fails.
     classify = inspect.signature(FakeAIAdapter.classify_and_epitaph)
-    assert list(classify.parameters) == ["self", "image_bytes", "mime"]
+    assert list(classify.parameters) == list(
+        inspect.signature(AIAdapter.classify_and_epitaph).parameters
+    )
+    assert list(classify.parameters) == ["self", "image_bytes", "mime", "instructions"]
     assert get_type_hints(FakeAIAdapter.classify_and_epitaph)["return"] is ClassificationResult
 
     study_note = inspect.signature(FakeAIAdapter.study_note)
-    assert list(study_note.parameters) == ["self", "images"]
+    assert list(study_note.parameters) == list(
+        inspect.signature(AIAdapter.study_note).parameters
+    )
+    assert list(study_note.parameters) == ["self", "images", "instructions"]
     assert get_type_hints(FakeAIAdapter.study_note)["return"] is StudyNoteResult
 
 

@@ -51,8 +51,14 @@ from pydantic import BaseModel, ValidationError
 from sqlalchemy.orm import Session
 
 from app.ai.adapter import AIAdapter, AIAdapterError
+from app.ai.redo_instructions import RedoInstructionsError, normalize_redo_instructions
 from app.ai.schemas import ClassificationResult
-from app.services.artifact_version_service import ArtifactVersionService
+from app.services.analysis_service import (
+    AnalysisNotFoundError,
+    AnalysisService,
+    AnalysisUnavailableError,
+)
+from app.services.artifact_version_service import ORIGIN_AI_REDO, ArtifactVersionService
 from app.services.consent_service import (
     ConsentRequiredError,
     ConsentService,
@@ -122,6 +128,66 @@ class ClassificationService:
         consent re-check, the single adapter call, validation, and the terminal
         operation transition.
         """
+        # 1-4) Consent re-check, read, ONE adapter call, strict validation.
+        result = self._authorize_and_classify(screenshot_id, operation_id, None)
+        if isinstance(result, ClassificationOutcome):
+            return result
+
+        # 5) Explicit uncertainty -> operation `uncertain`, NO artifacts persisted.
+        #    Distinguishable from both confident success and malformed data (P13).
+        if result.uncertain:
+            op = self._operations.set_terminal_status(
+                operation_id, "uncertain", error_detail="AI result uncertain"
+            )
+            return ClassificationOutcome(operation=op)
+
+        # 6) Confident, valid result -> atomic co-persistence (P14). The callback
+        #    only flushes; `complete_after_persistence` commits the artifacts AND
+        #    the operation->successful transition together (or rolls both back).
+        created: dict[str, int] = {}
+
+        def _persist() -> None:
+            class_art = self._repo.create_artifact(kind=_KIND_CLASSIFICATION)
+            epi_art = self._repo.create_artifact(kind=_KIND_EPITAPH)
+            # Version 1 + current pointer via the shared append-only boundary.
+            self._versions.create_first_version(
+                class_art.id, self._classification_json(result), _ORIGIN_AI_GENERATE
+            )
+            self._versions.create_first_version(
+                epi_art.id, self._epitaph_json(result), _ORIGIN_AI_GENERATE
+            )
+            # Provenance: both artifacts reference the source screenshot (INV-7).
+            self._repo.add_source_reference(
+                artifact_id=class_art.id, screenshot_id=screenshot_id
+            )
+            self._repo.add_source_reference(
+                artifact_id=epi_art.id, screenshot_id=screenshot_id
+            )
+            created["classification_artifact_id"] = class_art.id
+            created["epitaph_artifact_id"] = epi_art.id
+
+        try:
+            op = self._operations.complete_after_persistence(operation_id, _persist)
+        except OperationPersistenceError:
+            # Atomic rollback already occurred; a fresh `failed` was recorded.
+            op = self._operations.get(operation_id)
+            return ClassificationOutcome(operation=op)
+
+        return ClassificationOutcome(
+            operation=op,
+            classification_artifact_id=created.get("classification_artifact_id"),
+            epitaph_artifact_id=created.get("epitaph_artifact_id"),
+        )
+
+    def _authorize_and_classify(
+        self, screenshot_id: int, operation_id: int, instructions: str | None
+    ) -> "ClassificationResult | ClassificationOutcome":
+        """Shared by initial classification and AI Redo (Task 3.3).
+
+        Returns the validated result, or the already-recorded terminal outcome on
+        any failure. ``instructions`` (Redo only) is passed to the adapter as an
+        explicit keyword; initial classification keeps the two-argument call.
+        """
         # 1) Consent RE-CHECK immediately before any adapter work. If consent was
         #    revoked (or never granted) between enqueue and now, the adapter is
         #    never called and the operation fails safely. Foreign/missing is
@@ -172,7 +238,12 @@ class ClassificationService:
         except OperationTransitionError:
             return ClassificationOutcome(operation=self._operations.get(operation_id))
         try:
-            raw = self._adapter.classify_and_epitaph(original.data, original.mime_type)
+            if instructions is None:
+                raw = self._adapter.classify_and_epitaph(original.data, original.mime_type)
+            else:
+                raw = self._adapter.classify_and_epitaph(
+                    original.data, original.mime_type, instructions=instructions
+                )
         except AIAdapterError:
             op = self._operations.set_terminal_status(
                 operation_id, "failed", error_detail="AI analysis failed"
@@ -194,50 +265,87 @@ class ClassificationService:
             )
             return ClassificationOutcome(operation=op)
 
-        # 5) Explicit uncertainty -> operation `uncertain`, NO artifacts persisted.
-        #    Distinguishable from both confident success and malformed data (P13).
+        return result
+
+    def run_redo(
+        self, screenshot_id: int, operation_id: int, instructions: str | None
+    ) -> ClassificationOutcome:
+        """Execute one AI Redo of a screenshot's Classification + Epitaph.
+
+        One adapter call produces both, so BOTH artifacts get a new ``ai_redo``
+        version in ONE transaction with the operation status (P14), or neither
+        does. Manual edits and every earlier version stay retrievable; provenance
+        is untouched; the provider sees only the original image and the user's
+        instructions. An explicitly uncertain answer persists nothing (same rule
+        as initial classification) and leaves the current versions in place.
+        """
+        # Claim the in-process execution slot before inspecting ``pending``.
+        # Otherwise duplicate BackgroundTasks could both invoke the provider
+        # before the transaction-level completion lock rejects the loser.
+        with self._operations.exclusive_execution(operation_id):
+            return self._run_redo_exclusively(screenshot_id, operation_id, instructions)
+
+    def _run_redo_exclusively(
+        self, screenshot_id: int, operation_id: int, instructions: str | None
+    ) -> ClassificationOutcome:
+        # 0) Only a pending `redo` operation may execute (no duplicate provider call).
+        current = self._operations.get(operation_id)
+        if current.kind != "redo" or current.status != "pending":
+            return ClassificationOutcome(operation=current)
+
+        try:
+            instructions = normalize_redo_instructions(instructions)
+        except RedoInstructionsError:
+            op = self._operations.set_terminal_status(
+                operation_id, "failed", error_detail="Invalid instructions"
+            )
+            return ClassificationOutcome(operation=op)
+
+        # 1) Resolve the CURRENT classification + Epitaph artifacts, workspace-scoped.
+        try:
+            class_id, epi_id = AnalysisService(
+                self._session, self._workspace_id
+            ).artifact_ids(screenshot_id)
+        except AnalysisNotFoundError:
+            op = self._operations.set_terminal_status(
+                operation_id, "failed", error_detail="Not found"
+            )
+            return ClassificationOutcome(operation=op)
+        except AnalysisUnavailableError:
+            self._session.rollback()
+            op = self._operations.set_terminal_status(
+                operation_id, "failed", error_detail="AI processing unavailable"
+            )
+            return ClassificationOutcome(operation=op)
+
+        # 2-4) Consent re-check, read, ONE adapter call, strict validation.
+        result = self._authorize_and_classify(screenshot_id, operation_id, instructions)
+        if isinstance(result, ClassificationOutcome):
+            return result
+
+        # 5) Explicit uncertainty: nothing is persisted; prior versions untouched.
         if result.uncertain:
             op = self._operations.set_terminal_status(
                 operation_id, "uncertain", error_detail="AI result uncertain"
             )
             return ClassificationOutcome(operation=op)
 
-        # 6) Confident, valid result -> atomic co-persistence (P14). The callback
-        #    only flushes; `complete_after_persistence` commits the artifacts AND
-        #    the operation->successful transition together (or rolls both back).
-        created: dict[str, int] = {}
-
-        def _persist() -> None:
-            class_art = self._repo.create_artifact(kind=_KIND_CLASSIFICATION)
-            epi_art = self._repo.create_artifact(kind=_KIND_EPITAPH)
-            # Version 1 + current pointer via the shared append-only boundary.
-            self._versions.create_first_version(
-                class_art.id, self._classification_json(result), _ORIGIN_AI_GENERATE
+        # 6) Atomic: both new versions + pointers + operation status, or nothing.
+        def _persist() -> int:
+            self._versions.append_version(
+                class_id, self._classification_json(result), ORIGIN_AI_REDO
             )
-            self._versions.create_first_version(
-                epi_art.id, self._epitaph_json(result), _ORIGIN_AI_GENERATE
+            self._versions.append_version(
+                epi_id, self._epitaph_json(result), ORIGIN_AI_REDO
             )
-            # Provenance: both artifacts reference the source screenshot (INV-7).
-            self._repo.add_source_reference(
-                artifact_id=class_art.id, screenshot_id=screenshot_id
-            )
-            self._repo.add_source_reference(
-                artifact_id=epi_art.id, screenshot_id=screenshot_id
-            )
-            created["classification_artifact_id"] = class_art.id
-            created["epitaph_artifact_id"] = epi_art.id
+            return class_id
 
         try:
             op = self._operations.complete_after_persistence(operation_id, _persist)
-        except OperationPersistenceError:
-            # Atomic rollback already occurred; a fresh `failed` was recorded.
-            op = self._operations.get(operation_id)
-            return ClassificationOutcome(operation=op)
-
+        except (OperationPersistenceError, OperationTransitionError):
+            return ClassificationOutcome(operation=self._operations.get(operation_id))
         return ClassificationOutcome(
-            operation=op,
-            classification_artifact_id=created.get("classification_artifact_id"),
-            epitaph_artifact_id=created.get("epitaph_artifact_id"),
+            operation=op, classification_artifact_id=class_id, epitaph_artifact_id=epi_id
         )
 
     # ------------------------------------------------------------- serializers

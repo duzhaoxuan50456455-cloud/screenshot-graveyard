@@ -367,7 +367,7 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** tests assert a saved edit inserts a new version and all prior versions remain retrievable.
   - **Priority:** P0
 
-- [ ] 3.3 Implement AI Redo
+- [x] 3.3 Implement AI Redo
   - An AI Redo creates a new version, never discards a manual edit, and allows modifiable regeneration instructions.
   - **Dependencies:** 3.1, 2.5
   - **Requirements:** 7.3, 7.6, 7.7, 6.10, INV-5, INV-6, P15

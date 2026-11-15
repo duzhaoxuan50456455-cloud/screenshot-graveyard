@@ -12,6 +12,7 @@ provider output is never persisted. All other modes return schema-valid models.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from enum import Enum
 from typing import cast
@@ -47,9 +48,14 @@ class FakeAIAdapter:
     mode: FakeAIAdapterMode = FakeAIAdapterMode.NORMAL
 
     def classify_and_epitaph(
-        self, image_bytes: bytes, mime: str
+        self, image_bytes: bytes, mime: str, *, instructions: str | None = None
     ) -> ClassificationResult:
-        """Return a synthetic classification without inspecting ``image_bytes``."""
+        """Return a synthetic classification without inspecting ``image_bytes``.
+
+        Custom ``instructions`` (AI Redo) only change a clearly synthetic marker
+        derived from a hash of the text; the text itself is never echoed and the
+        fake never interprets the image or the guidance.
+        """
         del image_bytes, mime
         self._raise_if_timeout()
         if self.mode is FakeAIAdapterMode.INVALID:
@@ -78,7 +84,7 @@ class FakeAIAdapter:
             confidence=0.75,
             uncertain=False,
             epitaph=EpitaphPayload(
-                text="Synthetic reference fixture.",
+                text=f"Synthetic reference fixture{self._marker(instructions)}.",
                 visible_facts="Synthetic adapter does not interpret image content.",
                 inferred_intent=None,
                 uncertain=False,
@@ -86,7 +92,10 @@ class FakeAIAdapter:
         )
 
     def study_note(
-        self, images: list[tuple[int, bytes, str]]
+        self,
+        images: list[tuple[int, bytes, str]],
+        *,
+        instructions: str | None = None,
     ) -> StudyNoteResult:
         """Return a synthetic note whose references preserve supplied IDs."""
         self._raise_if_timeout()
@@ -111,10 +120,23 @@ class FakeAIAdapter:
             )
         return StudyNoteResult(
             topic="Synthetic study note fixture",
-            main_concepts=["Deterministic test fixture"],
+            main_concepts=["Deterministic test fixture"]
+            + (
+                [f"Synthetic regeneration fixture{self._marker(instructions)}"]
+                if instructions
+                else []
+            ),
             uncertain_content=[],
             references=references,
         )
+
+    @staticmethod
+    def _marker(instructions: str | None) -> str:
+        """Deterministic, honest evidence that instructions were received."""
+        if not instructions:
+            return ""
+        digest = hashlib.sha256(instructions.encode("utf-8")).hexdigest()[:8]
+        return f" (custom instructions #{digest})"
 
     def _raise_if_timeout(self) -> None:
         if self.mode is FakeAIAdapterMode.TIMEOUT:

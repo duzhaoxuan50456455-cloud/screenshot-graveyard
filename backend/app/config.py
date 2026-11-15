@@ -199,6 +199,12 @@ AI_CLASSIFICATION_MAX_OUTPUT_TOKENS: int = _positive_int(
     os.environ.get("AI_CLASSIFICATION_MAX_OUTPUT_TOKENS", "600"),
     setting="AI_CLASSIFICATION_MAX_OUTPUT_TOKENS",
 )
+# Upper bound (characters) on user-supplied AI Redo regeneration instructions.
+# Instructions are untrusted text; the bound limits provider cost and abuse.
+AI_REDO_INSTRUCTIONS_MAX_CHARS: int = _positive_int(
+    os.environ.get("AI_REDO_INSTRUCTIONS_MAX_CHARS", "1000"),
+    setting="AI_REDO_INSTRUCTIONS_MAX_CHARS",
+)
 AI_STUDY_NOTE_MAX_OUTPUT_TOKENS: int = _positive_int(
     os.environ.get("AI_STUDY_NOTE_MAX_OUTPUT_TOKENS", "2000"),
     setting="AI_STUDY_NOTE_MAX_OUTPUT_TOKENS",
