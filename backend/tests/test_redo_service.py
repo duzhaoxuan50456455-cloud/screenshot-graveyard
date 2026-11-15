@@ -13,6 +13,7 @@ import hashlib
 import io
 import json
 import os
+from itertools import product
 from threading import Event, Lock, Thread
 
 import pytest
@@ -26,7 +27,7 @@ from app.ai.fake_adapter import FakeAIAdapter, FakeAIAdapterMode
 from app.ai.schemas import StudyNoteResult
 from app.db import models
 from app.db.base import Base
-from app.db.repository import WorkspaceRepository
+from app.db.repository import CrossWorkspaceError, WorkspaceRepository
 from app.services.analysis_service import AnalysisService
 from app.services.artifact_version_service import ArtifactVersionService
 from app.services.classification_service import ClassificationService
@@ -226,6 +227,82 @@ def test_source_references_and_selection_order_survive_redo(ctx):
     assert [[i for i, _b, _m in imgs] for imgs, _ in ad.study_calls] == [order, order]  # order preserved
     assert json.loads(_versions(s, aid)[-1].content_json)["references"] == order
     assert _counts(s, wa)[0] == 1  # no new artifact
+
+
+@pytest.mark.parametrize(
+    "steps",
+    list(product(("edit", "redo"), repeat=3)),
+)
+def test_study_note_provenance_survives_mixed_manual_edits_and_redos(ctx, steps):
+    """P16: artifact-level references outlive every retained note version.
+
+    The complete set of three-step edit/Redo sequences covers each transition
+    in both directions. The references are an ordered artifact-level
+    relationship, not client-editable version content.
+    """
+    s, store, wa, wb = ctx
+    ids, vault = _shots(s, store, wa, 4)
+    order = [ids[2], ids[0], ids[3], ids[1]]
+    aid = StudyNoteService(
+        s, wa, adapter=Recording(), vault=vault
+    ).run_generation(order, _op(s, wa, "study_note")).artifact_id
+    repo = WorkspaceRepository(s, wa)
+    refs_before = [(ref.id, ref.screenshot_id) for ref in repo.list_source_references(aid)]
+    originals_before = {
+        sid: (vault.read_original(sid).data, vault.read_original(sid).sha256)
+        for sid in order
+    }
+
+    for number, step in enumerate(steps, start=1):
+        if step == "edit":
+            StudyNoteArtifactService(s, wa).save_edit(
+                aid,
+                {
+                    "topic": f"Manual topic {number}",
+                    "main_concepts": ["manual"],
+                    "extracted_code": [CODE],
+                    "code_explanations": [],
+                    "pitfalls": [],
+                    "uncertain_content": [],
+                },
+            )
+        else:
+            outcome, _ = _redo(s, wa, vault, aid, Recording(), "keep sources")
+            assert outcome.operation.status == "successful"
+
+        assert [(ref.id, ref.screenshot_id) for ref in repo.list_source_references(aid)] == refs_before
+
+    # Every historical and current version receives the same durable ordered
+    # provenance at read/export time, even though its JSON payload differs.
+    artifact_service = StudyNoteArtifactService(s, wa)
+    for version in _versions(s, aid):
+        retained = artifact_service.get_version(aid, version.id)
+        assert retained.source_screenshot_ids == order
+        markdown = StudyNoteArtifactService.to_markdown(retained)
+        assert [f"- Screenshot {sid}" for sid in order] == [
+            line for line in markdown.splitlines() if line.startswith("- Screenshot ")
+        ]
+
+    # Failed and uncertain Redo attempts cannot disturb a completed artifact's
+    # provenance, and foreign workspaces cannot inspect it.
+    for adapter, status in (
+        (Recording(raises=AIAdapterError("synthetic failure")), "failed"),
+        (Recording(mode=FakeAIAdapterMode.UNCERTAIN), "uncertain"),
+    ):
+        outcome, _ = _redo(s, wa, vault, aid, adapter, "x")
+        assert outcome.operation.status == status
+        assert [(ref.id, ref.screenshot_id) for ref in repo.list_source_references(aid)] == refs_before
+    with pytest.raises(CrossWorkspaceError):
+        WorkspaceRepository(s, wb).list_source_references(aid)
+
+    # Archive/restore is a logical screenshot state change only; it leaves the
+    # artifact relationship and immutable original bytes intact.
+    assert vault.archive(order[0]).state == "archived"
+    assert vault.restore(order[0]).state == "active"
+    assert [(ref.id, ref.screenshot_id) for ref in repo.list_source_references(aid)] == refs_before
+    for sid, expected in originals_before.items():
+        original = vault.read_original(sid)
+        assert (original.data, original.sha256) == expected
 
 
 def test_original_bytes_are_untouched_by_redo(ctx):
@@ -549,6 +626,42 @@ def test_analysis_redo_keeps_provenance_and_adds_no_artifacts(ctx):
         _redo_analysis(s, wa, v, sid, Recording(), None)
     assert _counts(s, wa)[0] == before[0] and _counts(s, wa)[2] == before[2]
     assert [(r.artifact_id, r.screenshot_id) for r in s.scalars(select(models.SourceReference)).all()] == refs
+
+
+def test_analysis_and_epitaph_provenance_survive_manual_edit_and_redo(ctx):
+    """P16 for both classification artifact families, including a failed Redo."""
+    s, store, wa, wb = ctx
+    sid, classification_id, epitaph_id, vault = _classified(s, store, wa)
+    repo = WorkspaceRepository(s, wa)
+    refs_before = {
+        artifact_id: [(ref.id, ref.screenshot_id) for ref in repo.list_source_references(artifact_id)]
+        for artifact_id in (classification_id, epitaph_id)
+    }
+    original_before = vault.read_original(sid)
+
+    AnalysisService(s, wa).save_edit(
+        sid, {"category": "Memory/Entertainment", "epitaph_text": "A manual caption"}
+    )
+    success, _ = _redo_analysis(s, wa, vault, sid, Recording(), "try another reading")
+    assert success.operation.status == "successful"
+    failed, _ = _redo_analysis(
+        s, wa, vault, sid, Recording(raises=AIAdapterError("synthetic failure")), "x"
+    )
+    assert failed.operation.status == "failed"
+
+    for artifact_id, expected in refs_before.items():
+        assert [(ref.id, ref.screenshot_id) for ref in repo.list_source_references(artifact_id)] == expected
+        assert expected == [(expected[0][0], sid)]
+        with pytest.raises(CrossWorkspaceError):
+            WorkspaceRepository(s, wb).list_source_references(artifact_id)
+
+    assert vault.archive(sid).state == "archived"
+    assert vault.restore(sid).state == "active"
+    original_after = vault.read_original(sid)
+    assert (original_after.data, original_after.sha256) == (
+        original_before.data,
+        original_before.sha256,
+    )
 
 
 def test_analysis_redo_provider_sees_only_the_original_and_instructions(ctx):

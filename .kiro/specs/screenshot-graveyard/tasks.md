@@ -381,7 +381,7 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** tests assert any two versions can be retrieved and compared (e.g. v1 vs v2).
   - **Priority:** P0
 
-- [ ] 3.5 Ensure source references survive versions and redo
+- [x] 3.5 Ensure source references survive versions and redo
   - Keep `source_reference` attached to the artifact so provenance is unchanged by any Redo or Manual Edit.
   - **Dependencies:** 3.2, 3.3
   - **Requirements:** 7.2, 6.7, 12.3, INV-7, P16
