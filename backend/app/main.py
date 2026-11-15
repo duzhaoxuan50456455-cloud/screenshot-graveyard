@@ -256,6 +256,8 @@ def create_app(
     application.include_router(build_classification_router())
     from app.routers.analysis import build_analysis_router
     application.include_router(build_analysis_router())
+    from app.routers.artifact_comparison import build_artifact_comparison_router
+    application.include_router(build_artifact_comparison_router())
     from app.routers.redo import build_redo_router
     application.include_router(build_redo_router())
     from app.routers.study_notes import build_study_notes_router

@@ -374,7 +374,7 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** tests assert a Redo after a manual edit retains the edited version separately and honors modified regeneration instructions.
   - **Priority:** P0
 
-- [ ] 3.4 Implement version comparison
+- [x] 3.4 Implement version comparison
   - Retrieve any two retained versions and produce a comparison.
   - **Dependencies:** 3.1
   - **Requirements:** 7.8, INV-6, P17
