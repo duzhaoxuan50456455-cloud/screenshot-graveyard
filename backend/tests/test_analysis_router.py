@@ -15,6 +15,7 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 from sqlalchemy import create_engine, func, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -24,6 +25,7 @@ from app.ai import provider
 from app.ai.fake_adapter import FakeAIAdapter
 from app.db import models
 from app.db.base import Base
+from app.db.repository import WorkspaceRepository
 from app.main import create_app
 from app.ratelimit import TokenBucketRateLimiter
 
@@ -121,6 +123,111 @@ def test_edit_appends_new_versions_and_retains_prior(client):
         ]
         first = json.loads(rows[0].content_json)
         assert first["category"] == "Reference/Document"  # v1 untouched
+
+
+def test_consecutive_analysis_edits_retain_history_and_failed_edit_rolls_back_both_artifacts(
+    client, monkeypatch
+):
+    """Task 3.2: Classification and Epitaph edits append independently, while
+    a failed later edit leaves both retained histories and source provenance intact.
+    """
+    c, eng, _ = client
+    sid = _classified(c)
+    category_edit = c.post(
+        f"/api/screenshots/{sid}/analysis/edits",
+        headers=HDRS,
+        json={"category": "Study/Knowledge"},
+    )
+    assert category_edit.status_code == 200
+    assert category_edit.json()["classification"] == {
+        "category": "Study/Knowledge",
+        "confidence": 0.75,
+        "uncertain": False,
+        "versionNumber": 2,
+        "origin": "manual_edit",
+    }
+    assert category_edit.json()["epitaph"]["versionNumber"] == 1
+
+    epitaph_edit = c.post(
+        f"/api/screenshots/{sid}/analysis/edits",
+        headers=HDRS,
+        json={"epitaphText": "A user-written, retained Epitaph."},
+    )
+    assert epitaph_edit.status_code == 200
+    assert epitaph_edit.json()["classification"]["versionNumber"] == 2
+    assert epitaph_edit.json()["epitaph"]["origin"] == "manual_edit"
+    assert epitaph_edit.json()["epitaph"]["versionNumber"] == 2
+
+    with Session(eng) as session:
+        artifacts = session.scalars(
+            select(models.Artifact)
+            .join(models.SourceReference)
+            .where(models.SourceReference.screenshot_id == sid)
+        ).all()
+        by_kind = {artifact.kind: artifact for artifact in artifacts}
+        before = {
+            kind: [
+                (version.id, version.version_number, version.origin, version.content_json)
+                for version in session.scalars(
+                    select(models.ArtifactVersion)
+                    .where(models.ArtifactVersion.artifact_id == artifact.id)
+                    .order_by(models.ArtifactVersion.version_number)
+                )
+            ]
+            for kind, artifact in by_kind.items()
+        }
+        refs_before = [
+            (ref.artifact_id, ref.screenshot_id)
+            for ref in session.scalars(
+                select(models.SourceReference)
+                .where(models.SourceReference.screenshot_id == sid)
+                .order_by(models.SourceReference.id)
+            )
+        ]
+
+    original_add = WorkspaceRepository.add_artifact_version
+
+    def flush_then_fail(self, **kwargs):
+        original_add(self, **kwargs)
+        raise SQLAlchemyError("forced version persistence failure")
+
+    monkeypatch.setattr(WorkspaceRepository, "add_artifact_version", flush_then_fail)
+    failed = c.post(
+        f"/api/screenshots/{sid}/analysis/edits",
+        headers=HDRS,
+        json={
+            "category": "Memory/Entertainment",
+            "epitaphText": "This edit must not partially persist.",
+        },
+    )
+    assert failed.status_code == 503
+
+    with Session(eng) as session:
+        artifacts = session.scalars(
+            select(models.Artifact)
+            .join(models.SourceReference)
+            .where(models.SourceReference.screenshot_id == sid)
+        ).all()
+        for artifact in artifacts:
+            retained = [
+                (version.id, version.version_number, version.origin, version.content_json)
+                for version in session.scalars(
+                    select(models.ArtifactVersion)
+                    .where(models.ArtifactVersion.artifact_id == artifact.id)
+                    .order_by(models.ArtifactVersion.version_number)
+                )
+            ]
+            assert retained == before[artifact.kind]
+            assert artifact.current_version_id == retained[-1][0]
+        refs_after = [
+            (ref.artifact_id, ref.screenshot_id)
+            for ref in session.scalars(
+                select(models.SourceReference)
+                .where(models.SourceReference.screenshot_id == sid)
+                .order_by(models.SourceReference.id)
+            )
+        ]
+        assert refs_after == refs_before
 
 
 def test_partial_edit_changes_only_supplied_field(client):

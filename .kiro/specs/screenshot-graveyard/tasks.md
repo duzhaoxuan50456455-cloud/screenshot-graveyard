@@ -360,7 +360,7 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** tests assert versions are insert-only, version numbers are strictly increasing with no gaps/duplicates, and there is no code path that updates `content_json`.
   - **Priority:** P0
 
-- [ ] 3.2 Implement manual Edit versions
+- [x] 3.2 Implement manual Edit versions
   - A saved Manual Edit creates a new version and never overwrites a prior saved version.
   - **Dependencies:** 3.1
   - **Requirements:** 7.4, 6.9, INV-5, INV-6, P15
