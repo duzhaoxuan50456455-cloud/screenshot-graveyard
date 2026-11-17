@@ -31,6 +31,7 @@ from app.db import models
 from app.db.base import Base
 from app.main import create_app
 from app.ratelimit import TokenBucketRateLimiter
+from app.services.artifact_version_service import ArtifactVersionService
 
 TRUSTED = config.TRUSTED_ORIGINS[0]
 HDRS = {"Origin": TRUSTED, "X-Requested-With": "fetch"}
@@ -150,6 +151,34 @@ def test_note_redo_202_polls_to_successful_and_keeps_the_manual_edit(client):
     assert exp.status_code == 200 and exp.text.startswith("# My edit")
     assert c.get(f"/api/study-notes/{aid}").json()["origin"] == "ai_redo"
     assert c.get(f"/api/study-notes/{aid}/sources").json()["sources"][0]["screenshotId"] == ids[0]
+
+
+def test_note_redo_precommit_failure_polls_failed_then_fresh_retry_succeeds(client, monkeypatch):
+    """Task 3.6: a 202 Redo failure stays pollable; retry gets a new operation."""
+    c, eng, _ = client
+    artifact_id, _ = _note(c)
+    real_append = ArtifactVersionService.append_version
+
+    def fail_append(*_args, **_kwargs):
+        raise RuntimeError("synthetic pre-commit version failure")
+
+    monkeypatch.setattr(ArtifactVersionService, "append_version", fail_append)
+    first = _redo_note(c, artifact_id, {"instructions": "x"})
+    monkeypatch.setattr(ArtifactVersionService, "append_version", real_append)
+    assert first.status_code == 202
+    failed_id = first.json()["operationId"]
+    failed_poll = c.get(f"/api/operations/{failed_id}")
+    assert failed_poll.status_code == 200
+    assert failed_poll.json()["status"] == "failed"
+    assert _versions(eng, "study_note") == [(1, "ai_generate")]
+
+    second = _redo_note(c, artifact_id, {"instructions": "x"})
+    assert second.status_code == 202
+    retry_id = second.json()["operationId"]
+    assert retry_id != failed_id
+    assert c.get(f"/api/operations/{retry_id}").json()["status"] == "successful"
+    assert c.get(f"/api/operations/{failed_id}").json()["status"] == "failed"
+    assert _versions(eng, "study_note") == [(1, "ai_generate"), (2, "ai_redo")]
 
 
 @pytest.mark.parametrize("make", [

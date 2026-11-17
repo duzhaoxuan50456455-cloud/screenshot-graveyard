@@ -388,7 +388,7 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** tests assert that after any sequence of redos/edits, the artifact still references every source Screenshot ID.
   - **Priority:** P0
 
-- [ ] 3.6 Implement failure recovery for versioned operations
+- [x] 3.6 Implement failure recovery for versioned operations
   - Persist each success as one atomic transaction; an error after a valid AI response but before commit → `failed`/retryable; a safe retry creates a new operation and a new version.
   - **Dependencies:** 3.1, 2.9
   - **Requirements:** 8.1, 8.6, INV-4, INV-5, INV-6, P15, P22

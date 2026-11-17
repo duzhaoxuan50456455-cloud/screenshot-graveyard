@@ -475,6 +475,56 @@ def test_a_safe_retry_after_failure_is_a_new_operation_and_new_version(ctx):
     assert [r.origin for r in _versions(s, aid)] == ["ai_generate", "ai_redo"]
 
 
+def test_study_redo_precommit_failure_rolls_back_then_new_operation_retries(ctx, monkeypatch):
+    """Task 3.6: a failed transaction creates no version-number gap on retry."""
+    s, store, wa, _ = ctx
+    aid, order, vault = _make_note(s, store, wa)
+    _edit_note(s, wa, aid, topic="retained manual edit")
+    repo = WorkspaceRepository(s, wa)
+    refs_before = [(ref.id, ref.screenshot_id) for ref in repo.list_source_references(aid)]
+    versions_before = [
+        (row.id, row.version_number, row.origin, row.content_json)
+        for row in _versions(s, aid)
+    ]
+    current_before = s.get(models.Artifact, aid).current_version_id
+    originals_before = {
+        sid: (vault.read_original(sid).data, vault.read_original(sid).sha256)
+        for sid in order
+    }
+    real_pointer = WorkspaceRepository.set_current_version
+
+    def pointer_fails(*_args, **_kwargs):
+        raise RuntimeError("synthetic pre-commit pointer failure")
+
+    monkeypatch.setattr(WorkspaceRepository, "set_current_version", pointer_fails)
+    failed, failed_id = _redo(s, wa, vault, aid, Recording(), "x")
+    monkeypatch.setattr(WorkspaceRepository, "set_current_version", real_pointer)
+
+    assert failed.operation.status == "failed"
+    assert OperationService(s, wa).get(failed_id).status == "failed"
+    assert [
+        (row.id, row.version_number, row.origin, row.content_json)
+        for row in _versions(s, aid)
+    ] == versions_before
+    assert s.get(models.Artifact, aid).current_version_id == current_before
+    assert [(ref.id, ref.screenshot_id) for ref in repo.list_source_references(aid)] == refs_before
+
+    retried, retry_id = _redo(s, wa, vault, aid, Recording(), "x")
+    assert retry_id != failed_id
+    assert retried.operation.status == "successful"
+    assert OperationService(s, wa).get(failed_id).status == "failed"  # inspectable history
+    rows = _versions(s, aid)
+    assert [(row.version_number, row.origin) for row in rows] == [
+        (1, "ai_generate"), (2, "manual_edit"), (3, "ai_redo")
+    ]
+    assert [(row.id, row.version_number, row.origin, row.content_json) for row in rows[:2]] == versions_before
+    assert s.get(models.Artifact, aid).current_version_id == rows[-1].id
+    assert [(ref.id, ref.screenshot_id) for ref in repo.list_source_references(aid)] == refs_before
+    for sid, expected in originals_before.items():
+        original = vault.read_original(sid)
+        assert (original.data, original.sha256) == expected
+
+
 def test_duplicate_delivery_of_one_redo_operation_calls_the_provider_once(ctx):
     s, store, wa, _ = ctx
     aid, _, v = _make_note(s, store, wa)
@@ -743,6 +793,61 @@ def test_analysis_redo_second_append_failure_rolls_back_the_first(ctx, monkeypat
     assert n["c"] == 2 and out.operation.status == "failed"
     assert len(_versions(s, cid)) == len(_versions(s, eid)) == 1
     assert [s.get(models.Artifact, a).current_version_id for a in (cid, eid)] == cur
+
+
+def test_analysis_redo_pair_failure_rolls_back_then_new_operation_retries(ctx, monkeypatch):
+    """Task 3.6: a failed paired Redo cannot strand one artifact at v3."""
+    s, store, wa, _ = ctx
+    sid, cid, eid, vault = _classified(s, store, wa)
+    AnalysisService(s, wa).save_edit(
+        sid, {"category": "Memory/Entertainment", "epitaph_text": "retained manual edit"}
+    )
+    repo = WorkspaceRepository(s, wa)
+    refs_before = {
+        artifact_id: [(ref.id, ref.screenshot_id) for ref in repo.list_source_references(artifact_id)]
+        for artifact_id in (cid, eid)
+    }
+    versions_before = {
+        artifact_id: [(row.id, row.version_number, row.origin, row.content_json) for row in _versions(s, artifact_id)]
+        for artifact_id in (cid, eid)
+    }
+    pointers_before = [s.get(models.Artifact, artifact_id).current_version_id for artifact_id in (cid, eid)]
+    original_before = vault.read_original(sid)
+    real_append = ArtifactVersionService.append_version
+    calls = {"count": 0}
+
+    def second_append_fails(self, *args, **kwargs):
+        calls["count"] += 1
+        if calls["count"] == 2:
+            raise RuntimeError("synthetic epitaph version failure")
+        return real_append(self, *args, **kwargs)
+
+    monkeypatch.setattr(ArtifactVersionService, "append_version", second_append_fails)
+    failed, failed_id = _redo_analysis(s, wa, vault, sid, Recording(), "x")
+    monkeypatch.setattr(ArtifactVersionService, "append_version", real_append)
+
+    assert calls["count"] == 2 and failed.operation.status == "failed"
+    assert OperationService(s, wa).get(failed_id).status == "failed"
+    for artifact_id, expected in versions_before.items():
+        assert [(row.id, row.version_number, row.origin, row.content_json) for row in _versions(s, artifact_id)] == expected
+    assert [s.get(models.Artifact, artifact_id).current_version_id for artifact_id in (cid, eid)] == pointers_before
+
+    retried, retry_id = _redo_analysis(s, wa, vault, sid, Recording(), "x")
+    assert retry_id != failed_id and retried.operation.status == "successful"
+    assert OperationService(s, wa).get(failed_id).status == "failed"
+    for artifact_id, expected in versions_before.items():
+        rows = _versions(s, artifact_id)
+        assert [(row.id, row.version_number, row.origin, row.content_json) for row in rows[:2]] == expected
+        assert [(row.version_number, row.origin) for row in rows] == [
+            (1, "ai_generate"), (2, "manual_edit"), (3, "ai_redo")
+        ]
+        assert s.get(models.Artifact, artifact_id).current_version_id == rows[-1].id
+        assert [(ref.id, ref.screenshot_id) for ref in repo.list_source_references(artifact_id)] == refs_before[artifact_id]
+    original_after = vault.read_original(sid)
+    assert (original_after.data, original_after.sha256) == (
+        original_before.data,
+        original_before.sha256,
+    )
 
 
 def test_analysis_redo_duplicate_delivery_calls_the_provider_once(ctx):
