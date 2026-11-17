@@ -395,7 +395,7 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** tests assert a pre-commit failure rolls back with no partial version and that a retry yields a new operation + new version with priors retained.
   - **Priority:** P0
 
-- [ ] 3.7 Implement and test concurrent operation completion
+- [x] 3.7 Implement and test concurrent operation completion
   - Use optimistic insert + unique-constraint + bounded retry-on-conflict so concurrent Redo + Manual Edit and Redo + Redo on the same artifact **both complete** with distinct version numbers, all priors retained, and a valid `current_version_id`.
   - **Dependencies:** 3.2, 3.3
   - **Requirements:** 7.3, 7.4, 7.5, 7.6, 14.3, INV-5, INV-6, P15

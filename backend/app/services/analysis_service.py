@@ -23,7 +23,10 @@ from sqlalchemy.orm import Session
 
 from app.ai.schemas import Category
 from app.db.repository import CrossWorkspaceError, WorkspaceRepository
-from app.services.artifact_version_service import ArtifactVersionService
+from app.services.artifact_version_service import (
+    ArtifactVersionService,
+    VersionConflictError,
+)
 
 _KIND_CLASSIFICATION = "classification"
 _KIND_EPITAPH = "epitaph"
@@ -141,6 +144,10 @@ class AnalysisService:
         except CrossWorkspaceError as exc:
             self._session.rollback()
             raise AnalysisNotFoundError("analysis not found") from exc
+        except VersionConflictError as exc:
+            # Bounded retry exhausted: BOTH artifacts roll back together.
+            self._session.rollback()
+            raise AnalysisUnavailableError("analysis service unavailable") from exc
         except SQLAlchemyError as exc:
             self._session.rollback()
             raise AnalysisUnavailableError("analysis service unavailable") from exc

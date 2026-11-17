@@ -133,21 +133,27 @@ def test_service_never_commits_the_callers_transaction(ctx):
 # ------------------------------------------------------------ uniqueness backstop
 
 def test_unique_artifact_version_number_is_enforced_by_the_database(ctx):
+    """The UNIQUE constraint remains the backstop (Task 3.1), and since Task 3.7 a
+    stale writer RECOVERS by re-reading max instead of failing. With the retry
+    bound at 1 the raw conflict is still surfaced (as a sanitized
+    VersionConflictError), proving the database - not Python - rejects the duplicate.
+    """
+    from app.services.artifact_version_service import VersionConflictError
+
     s, wa, _ = ctx
     aid = _artifact(s, wa)
     svc = ArtifactVersionService(s, wa)
     svc.create_first_version(aid, doc())
     s.commit()
-    # A stale writer that computed the same number must be rejected, not silently
-    # overwrite or duplicate (Task 3.7 adds the retry that lets it complete).
     original = WorkspaceRepository.max_version_number
     # Simulate a writer working from a stale view: it always believes max == 1.
     WorkspaceRepository.max_version_number = lambda self, artifact_id: 1
     try:
         svc.append_version(aid, doc(x=2), "manual_edit")  # believes next=2: correct
         s.commit()
-        with pytest.raises(IntegrityError):
-            svc.append_version(aid, doc(x=3), "ai_redo")  # believes next=2 again: duplicate
+        strict = ArtifactVersionService(s, wa, max_conflict_attempts=1)
+        with pytest.raises(VersionConflictError):
+            strict.append_version(aid, doc(x=3), "ai_redo")  # believes next=2 again: duplicate
     finally:
         WorkspaceRepository.max_version_number = original
     s.rollback()

@@ -23,7 +23,10 @@ from sqlalchemy.orm import Session
 
 from app.ai.schemas import StudyNoteResult
 from app.db.repository import CrossWorkspaceError, WorkspaceRepository
-from app.services.artifact_version_service import ArtifactVersionService
+from app.services.artifact_version_service import (
+    ArtifactVersionService,
+    VersionConflictError,
+)
 
 _KIND_STUDY_NOTE = "study_note"
 _ORIGIN_MANUAL_EDIT = "manual_edit"
@@ -202,6 +205,11 @@ class StudyNoteArtifactService:
         except CrossWorkspaceError as exc:
             self._session.rollback()
             raise StudyNoteArtifactNotFoundError("study note not found") from exc
+        except VersionConflictError as exc:
+            # Contention outlasted the bounded retry: nothing was saved. Report
+            # the same safe "try again" failure as any transient service error.
+            self._session.rollback()
+            raise StudyNoteArtifactUnavailableError("study note service unavailable") from exc
         except SQLAlchemyError as exc:
             self._session.rollback()
             raise StudyNoteArtifactUnavailableError("study note service unavailable") from exc

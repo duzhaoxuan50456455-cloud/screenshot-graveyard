@@ -24,20 +24,40 @@ Transactions: this service NEVER commits or rolls back the outer transaction.
 The caller owns it, which is what lets `OperationService.complete_after_persistence`
 commit artifacts + versions + references + operation status atomically.
 
-Concurrency boundary (be precise): `append_version` takes the existing
-per-workspace lock (`lock_workspace`) before reading `max`. On SQLite that is a
-real database write lock; on PostgreSQL it is a row lock. That serializes writers
-that all use this service, in one database. It is NOT a distributed lock and
-is not verified here against PostgreSQL or several app instances. If two writers
-still race to the same number, the UNIQUE constraint rejects the loser with an
-`IntegrityError` (surfaced to the caller as a SQLAlchemyError); the optimistic
-insert + bounded retry-on-conflict that lets both complete is Task 3.7.
+Concurrent completion (Task 3.7), in two layers:
+
+  1. SERIALIZE. `append_version` first takes the existing per-workspace lock
+     (`lock_workspace`). On SQLite that is a real database write lock; on
+     PostgreSQL a row lock. Writers that use this service therefore queue behind
+     one another and read a fresh `max`, so ordinary Redo + Manual Edit and
+     Redo + Redo contention never produces a conflict at all.
+  2. OPTIMISTIC BACKSTOP. If a writer nevertheless computes a number that another
+     committed transaction already used (a writer that did not hold the lock, a
+     lock that did not serialize, a stale read), the database's
+     `UNIQUE(artifact_id, version_number)` rejects the INSERT. That one failure,
+     and only that one, is recognised (`is_version_number_conflict`); the
+     SAVEPOINT is rolled back, `max` is re-read, and the append is retried up to
+     `MAX_VERSION_CONFLICT_ATTEMPTS` times. Each conflict means some other writer
+     committed a version, so the loop makes progress. No sleeps, no randomness.
+
+The retry lives INSIDE the caller's transaction and reuses the content the caller
+already produced, so a conflict can never re-invoke an AI provider, create another
+operation, or consume AI quota. When the bound is exhausted a sanitized
+`VersionConflictError` is raised; the caller's transaction rolls back as a whole
+(so a Classification + Epitaph pair stays all-or-nothing).
+
+What this does NOT claim: it is not a distributed lock; it has not been run
+against PostgreSQL or several app instances; it does not retry SQLite
+"database is locked" (lock-wait timeout), serialization failures (SQLSTATE
+40001) or any other IntegrityError; and persistent database outages still fail
+the operation. Those are infrastructure failures, not version-number contention.
 """
 
 from __future__ import annotations
 
 import json
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db import models
@@ -49,9 +69,57 @@ ORIGIN_MANUAL_EDIT = "manual_edit"
 VALID_ORIGINS = frozenset({ORIGIN_AI_GENERATE, ORIGIN_AI_REDO, ORIGIN_MANUAL_EDIT})
 FIRST_VERSION = 1
 
+# Bounded optimistic retry (Task 3.7). Read at call time so tests can tighten it.
+MAX_VERSION_CONFLICT_ATTEMPTS = 5
+
+# The one constraint whose violation means "that version number is taken".
+_VERSION_UNIQUE_CONSTRAINT = "artifact_version_artifact_version"
+_VERSION_UNIQUE_COLUMNS = frozenset(
+    {"artifact_version.artifact_id", "artifact_version.version_number"}
+)
+_SQLSTATE_UNIQUE_VIOLATION = "23505"
+
 
 class ArtifactVersionError(Exception):
     """Invalid use of the version boundary (bad origin or content)."""
+
+
+class VersionConflictError(ArtifactVersionError):
+    """Version-number conflicts persisted past the retry bound.
+
+    Carries a fixed, safe message only: no SQL, parameters, content or ids. The
+    caller's transaction must be rolled back; nothing was written.
+    """
+
+
+def is_version_number_conflict(exc: IntegrityError) -> bool:
+    """True ONLY for a violation of UNIQUE(artifact_id, version_number).
+
+    Any other IntegrityError (a foreign key, NOT NULL, another table's unique
+    index, ...) is a genuine bug or data problem and must never be retried.
+
+    SQLite reports the violated columns in its message; PostgreSQL drivers report
+    the constraint name (`diag.constraint_name`, with a message fallback). The
+    PostgreSQL branch is covered by shape-only unit tests, NOT by a live server.
+    """
+    orig = getattr(exc, "orig", None)
+    if orig is None:
+        return False
+    diag = getattr(orig, "diag", None)
+    constraint = getattr(diag, "constraint_name", None)
+    if constraint is not None:
+        return constraint == _VERSION_UNIQUE_CONSTRAINT
+    code = getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None)
+    if code is not None and code != _SQLSTATE_UNIQUE_VIOLATION:
+        return False
+    message = str(orig)
+    if f'"{_VERSION_UNIQUE_CONSTRAINT}"' in message:
+        return True
+    prefix = "UNIQUE constraint failed:"
+    if message.startswith(prefix):
+        columns = {part.strip() for part in message[len(prefix):].split(",")}
+        return columns == _VERSION_UNIQUE_COLUMNS
+    return False
 
 
 def _validate(origin: str, content_json: str) -> None:
@@ -66,11 +134,25 @@ def _validate(origin: str, content_json: str) -> None:
 
 
 class ArtifactVersionService:
-    def __init__(self, session: Session, workspace_id: int) -> None:
+    def __init__(
+        self,
+        session: Session,
+        workspace_id: int,
+        *,
+        max_conflict_attempts: int | None = None,
+    ) -> None:
         if workspace_id is None:
             raise ValueError("workspace_id is required")
+        attempts = (
+            MAX_VERSION_CONFLICT_ATTEMPTS
+            if max_conflict_attempts is None
+            else max_conflict_attempts
+        )
+        if not isinstance(attempts, int) or isinstance(attempts, bool) or attempts < 1:
+            raise ValueError("max_conflict_attempts must be a positive integer")
         self._session = session
         self._repo = WorkspaceRepository(session, workspace_id)
+        self._max_attempts = attempts
 
     # ----------------------------------------------------------------- writes
 
@@ -91,14 +173,35 @@ class ArtifactVersionService:
     def append_version(
         self, artifact_id: int, content_json: str, origin: str
     ) -> models.ArtifactVersion:
-        """Append the next version of an EXISTING artifact and make it current."""
+        """Append the next version of an EXISTING artifact and make it current.
+
+        Serializes on the workspace lock, then inserts optimistically. A recognised
+        version-number conflict rolls back only this SAVEPOINT (the caller's
+        transaction, its lock, and any unrelated pending work stay intact),
+        re-reads `max`, and retries up to the explicit bound. Anything else
+        propagates unchanged. See the module docstring for the guarantees.
+        """
         _validate(origin, content_json)
-        # Serialize number assignment for this workspace (see module docstring).
+        # Layer 1: serialize number assignment for this workspace.
         if self._repo.lock_workspace() is None:
             raise CrossWorkspaceError()
-        with self._session.begin_nested():
-            next_number = self._repo.max_version_number(artifact_id) + 1
-            return self._insert_and_point(artifact_id, next_number, origin, content_json)
+        # Layer 2: optimistic insert + bounded retry on a recognised conflict.
+        for _attempt in range(self._max_attempts):
+            try:
+                with self._session.begin_nested():
+                    next_number = self._repo.max_version_number(artifact_id) + 1
+                    return self._insert_and_point(
+                        artifact_id, next_number, origin, content_json
+                    )
+            except IntegrityError as exc:
+                # The context manager already rolled the SAVEPOINT back, so the
+                # outer transaction is valid and the failed row is gone.
+                if not is_version_number_conflict(exc):
+                    raise
+        # `from None`: do not chain the driver error (it embeds SQL parameters).
+        raise VersionConflictError(
+            "version number conflict persisted; please retry"
+        ) from None
 
     # ------------------------------------------------------------------ reads
 
