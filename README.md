@@ -119,7 +119,7 @@ restore experience. The AI workflows are backend APIs today, not UI actions.
 ## Testing
 
 Verified locally at commit
-[`b631721`](https://github.com/duzhaoxuan50456455-cloud/screenshot-graveyard/commit/b6317210c7a54f3755fdf88f5ea85dfc4047fdb4):
+[`b631721`](https://github.com/emilyzdu/screenshot-graveyard/commit/b6317210c7a54f3755fdf88f5ea85dfc4047fdb4):
 
 | Command | Result |
 | --- | --- |
@@ -219,7 +219,7 @@ Hooks, MCP, Powers, or custom agents, so none is claimed here.
 
 ## Links and competition notes
 
-- Repository: <https://github.com/duzhaoxuan50456455-cloud/screenshot-graveyard>
+- Repository: <https://github.com/emilyzdu/screenshot-graveyard>
   (public at the time of this update)
 - License: [MIT](LICENSE)
 - Kiro artifacts: [`.kiro/`](.kiro/), tracked in this repository
