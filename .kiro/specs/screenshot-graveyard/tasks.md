@@ -409,7 +409,7 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** PBT-VERSIONING passes ≥100 iterations, including concurrent Redo+Edit / Redo+Redo both completing and provenance surviving every version.
   - **Priority:** P0
 
-- [ ] 3.9 Checkpoint — ensure all tests pass
+- [x] 3.9 Checkpoint — ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
   - **Dependencies:** 3.8
   - **Requirements:** 14.1
