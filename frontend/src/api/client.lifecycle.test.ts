@@ -39,6 +39,7 @@ describe('listScreenshots', () => {
           duplicateOf: null,
           byteSize: 10,
           uploadedAt: '2026-11-07T00:00:00+00:00',
+          analysis: null,
         },
       ],
     };

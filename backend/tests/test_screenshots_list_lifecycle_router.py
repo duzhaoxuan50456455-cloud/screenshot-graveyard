@@ -84,8 +84,9 @@ def test_list_returns_only_own_workspace_safe_metadata(client):
     for s in body["screenshots"]:
         assert set(s.keys()) == {
             "screenshotId", "state", "mimeType", "originalFilename",
-            "isDuplicate", "duplicateOf", "byteSize", "uploadedAt",
+            "isDuplicate", "duplicateOf", "byteSize", "uploadedAt", "analysis",
         }
+        assert s["analysis"] is None  # never analysed -> a Ghost (Task 4.1)
     assert "storage" not in r.text and "token" not in r.text
 
 

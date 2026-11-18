@@ -21,6 +21,7 @@ const mk = (n: number): Screenshot[] =>
   Array.from({ length: n }, (_, i) => ({
     screenshotId: i + 1, state: 'active' as const, mimeType: 'image/png', originalFilename: `s${i + 1}.png`,
     isDuplicate: false, duplicateOf: null, byteSize: 10, uploadedAt: '2026-11-07T00:00:00+00:00',
+    analysis: null,
   }));
 const ok = <T,>(data: T) => Promise.resolve({ ok: true as const, data });
 const fail = (status: number, code = 'x', message = 'm') => Promise.resolve({ ok: false as const, status, code, message });

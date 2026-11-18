@@ -1,4 +1,4 @@
-import type { ApiFailure, OperationStatus } from '../api/ai';
+import type { ApiFailure, OperationStatus, ProviderMode } from '../api/ai';
 
 /** Plain-language text for a failed AI request (never shows raw server detail). */
 export function describeRequestFailure(f: ApiFailure): string {
@@ -52,4 +52,17 @@ export function describeOperationOutcome(
     default:
       return 'The work failed. Nothing was saved and your screenshot is unchanged.';
   }
+}
+
+/**
+ * Honest provenance wording for a persisted AI/manual value. In fake mode the
+ * "AI" output is a deterministic placeholder that never looked at the image, so it
+ * must not be presented as genuine understanding (Task 4.1).
+ */
+export function describeOrigin(origin: string, provider: ProviderMode | 'unknown'): string {
+  if (origin === 'manual_edit') return 'edited by you';
+  const verb = origin === 'ai_redo' ? 'regenerated' : 'generated';
+  if (provider === 'fake') return `${verb} by the demo AI (placeholder text, not real image understanding)`;
+  if (provider === 'openai') return `${verb} by AI (a suggestion; it can be wrong)`;
+  return `${verb} by AI`;
 }

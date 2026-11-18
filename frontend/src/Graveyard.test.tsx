@@ -47,6 +47,7 @@ function shot(partial: Partial<Screenshot> & { screenshotId: number }): Screensh
     duplicateOf: null,
     byteSize: 2048,
     uploadedAt: '2026-11-07T00:00:00+00:00',
+    analysis: null,
     ...partial,
   };
 }

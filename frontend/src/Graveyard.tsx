@@ -8,8 +8,13 @@ import {
   uploadScreenshots,
   type Screenshot,
 } from './api/client';
+import type { Analysis } from './api/ai';
+import { EpitaphEditor } from './ai/EpitaphEditor';
+import { describeOrigin } from './ai/messages';
+import { useProviderMode } from './ai/PrivacyNotice';
 import { ScreenshotDetail } from './ai/ScreenshotDetail';
 import { StudyNotesPanel } from './ai/StudyNotesPanel';
+import { partitionScreenshots, type CardKind } from './graveyardState';
 
 type LoadPhase =
   | { phase: 'starting' }
@@ -34,6 +39,7 @@ export function Graveyard() {
   const [notice, setNotice] = useState<Notice>(null);
   const [pendingId, setPendingId] = useState<number | null>(null);
   const [openId, setOpenId] = useState<number | null>(null);
+  const provider = useProviderMode(); // read-only; 'unknown' until confirmed
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const refresh = useCallback(async () => {
@@ -68,6 +74,28 @@ export function Graveyard() {
       active = false;
     };
   }, [refresh]);
+
+  // The server's analysis is the source of truth: when an analysis is created or
+  // edited elsewhere in the UI, mirror it into the list so the Ghost / Revived
+  // views change immediately and without another request. Stable identity on
+  // purpose (children keep it in effects).
+  const onAnalysisChanged = useCallback((analysis: Analysis) => {
+    setScreenshots((current) =>
+      current.map((s) =>
+        s.screenshotId === analysis.screenshotId
+          ? {
+              ...s,
+              analysis: {
+                category: analysis.classification.category,
+                uncertain: analysis.classification.uncertain,
+                epitaph: analysis.epitaph.text,
+                epitaphOrigin: analysis.epitaph.origin,
+              },
+            }
+          : s,
+      ),
+    );
+  }, []);
 
   const onUpload = useCallback(
     async (fileList: FileList | null) => {
@@ -192,20 +220,27 @@ export function Graveyard() {
     );
   }
 
-  const active = screenshots.filter((s) => s.state === 'active');
-  const archived = screenshots.filter((s) => s.state === 'archived');
+  const { ghosts, revived, crypt: archived } = partitionScreenshots(screenshots);
 
-  const renderCard = (s: Screenshot, kind: 'ghost' | 'crypt') => {
+  const renderCard = (s: Screenshot, kind: CardKind) => {
     const label = s.originalFilename || `Screenshot #${s.screenshotId}`;
     const isPending = pendingId === s.screenshotId;
     return (
-      <li key={s.screenshotId} className={`gy-card gy-card--${kind}`}>
+      <li key={s.screenshotId} className={`gy-card gy-card--${kind}`} data-kind={kind}>
         <img
           className="gy-card__img"
           src={imageUrl(s.screenshotId)}
           alt={`Screenshot ${label}`}
           loading="lazy"
         />
+        <p className={`gy-card__state gy-card__state--${kind}`}>
+          <span aria-hidden="true" className="gy-card__glyph">
+            {kind === 'ghost' ? '◌' : kind === 'revived' ? '✦' : '▣'}
+          </span>{' '}
+          {kind === 'ghost' && 'Ghost: Pending, not analyzed yet'}
+          {kind === 'revived' && 'Revived: analyzed'}
+          {kind === 'crypt' && 'In The Crypt: archived, original kept'}
+        </p>
         <div className="gy-card__meta">
           <span className="gy-card__name" title={label}>
             {label}
@@ -217,16 +252,49 @@ export function Graveyard() {
             </span>
           )}
         </div>
+        {s.analysis === null ? (
+          <p className="gy-card__pending">
+            No Epitaph yet. {kind === 'crypt' ? 'It was archived before analysis.' : 'Revive it to analyze it.'}
+          </p>
+        ) : (
+          <div className="gy-card__analysis">
+            <p className="gy-card__category">
+              <strong>Category:</strong> {s.analysis.category}
+              {s.analysis.uncertain && ' (? the AI marked this uncertain)'}
+            </p>
+            <p className="gy-card__epitaph">
+              <strong>Epitaph:</strong> <span data-testid={`epitaph-${s.screenshotId}`}>{s.analysis.epitaph}</span>
+            </p>
+            <p className="ai-hint">Epitaph {describeOrigin(s.analysis.epitaphOrigin, provider)}.</p>
+            <EpitaphEditor
+              screenshotId={s.screenshotId}
+              name={label}
+              epitaph={s.analysis.epitaph}
+              onSaved={onAnalysisChanged}
+            />
+          </div>
+        )}
         <div className="gy-card__actions">
-          <button
-            type="button"
-            className="gy-btn"
-            onClick={() => setOpenId(s.screenshotId)}
-            aria-label={`Open ${label} (consent and AI)`}
-          >
-            Open
-          </button>
           {kind === 'ghost' ? (
+            <button
+              type="button"
+              className="gy-btn gy-btn--revive"
+              onClick={() => setOpenId(s.screenshotId)}
+              aria-label={`Revive (start AI analysis): open ${label} to review consent first`}
+            >
+              Revive…
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="gy-btn"
+              onClick={() => setOpenId(s.screenshotId)}
+              aria-label={`Open ${label} (consent and AI)`}
+            >
+              Open
+            </button>
+          )}
+          {kind !== 'crypt' ? (
             <button
               type="button"
               className="gy-btn gy-btn--bury"
@@ -254,6 +322,22 @@ export function Graveyard() {
 
   return (
     <section className="gy">
+      {provider !== 'unknown' && (
+        <p className={`gy-provider gy-provider--${provider}`} role="note" data-testid="ai-provider-note">
+          {provider === 'fake' ? (
+            <>
+              <strong>Demo AI mode.</strong> Results are deterministic placeholders and do
+              not read your images. Nothing is sent to an external AI service.
+            </>
+          ) : (
+            <>
+              <strong>Real AI mode.</strong> When you Revive a screenshot (after you
+              consent), its image content is sent to an external AI service. Results are
+              suggestions and can be wrong.
+            </>
+          )}
+        </p>
+      )}
       <form
         className="gy-upload"
         onSubmit={(e) => {
@@ -308,15 +392,37 @@ export function Graveyard() {
       <div className="gy-sections">
         <section className="gy-section" aria-labelledby="gy-ghost-h">
           <h2 id="gy-ghost-h" className="gy-section__h">
-            Ghosts <span className="gy-section__count">({active.length})</span>
+            Ghosts <span className="gy-section__count">({ghosts.length})</span>
           </h2>
-          <p className="gy-section__sub">Active screenshots, still wandering.</p>
-          {active.length === 0 ? (
+          <p className="gy-section__sub">
+            Pending screenshots: uploaded but not analyzed yet.
+          </p>
+          {ghosts.length === 0 ? (
             <p className="gy-empty">
-              No ghosts yet. Upload a screenshot to begin.
+              {revived.length === 0 && archived.length === 0
+                ? 'No ghosts yet. Upload a screenshot to begin.'
+                : 'No ghosts: nothing is waiting for analysis.'}
             </p>
           ) : (
-            <ul className="gy-grid">{active.map((s) => renderCard(s, 'ghost'))}</ul>
+            <ul className="gy-grid" aria-label="Ghosts">
+              {ghosts.map((s) => renderCard(s, 'ghost'))}
+            </ul>
+          )}
+        </section>
+
+        <section className="gy-section" aria-labelledby="gy-revived-h">
+          <h2 id="gy-revived-h" className="gy-section__h">
+            Revived <span className="gy-section__count">({revived.length})</span>
+          </h2>
+          <p className="gy-section__sub">
+            Analyzed screenshots, with their category and Epitaph.
+          </p>
+          {revived.length === 0 ? (
+            <p className="gy-empty">Nothing revived yet.</p>
+          ) : (
+            <ul className="gy-grid" aria-label="Revived screenshots">
+              {revived.map((s) => renderCard(s, 'revived'))}
+            </ul>
           )}
         </section>
 
@@ -325,12 +431,12 @@ export function Graveyard() {
             The Crypt <span className="gy-section__count">({archived.length})</span>
           </h2>
           <p className="gy-section__sub">
-            Archived screenshots. Recoverable — nothing is ever deleted.
+            Exactly your archived (Safe Buried) screenshots. Recoverable — nothing is ever deleted.
           </p>
           {archived.length === 0 ? (
             <p className="gy-empty">The Crypt is empty.</p>
           ) : (
-            <ul className="gy-grid">
+            <ul className="gy-grid" aria-label="The Crypt">
               {archived.map((s) => renderCard(s, 'crypt'))}
             </ul>
           )}
@@ -342,6 +448,7 @@ export function Graveyard() {
           key={openId}
           screenshot={screenshots.find((s) => s.screenshotId === openId) as Screenshot}
           onClose={() => setOpenId(null)}
+          onAnalysisChanged={onAnalysisChanged}
         />
       )}
 

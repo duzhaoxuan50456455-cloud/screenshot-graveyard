@@ -35,6 +35,7 @@ from app import config
 from app.db.session import get_session
 from app.middleware.limits import BatchTooLargeError, enforce_max_files_per_batch
 from app.db.repository import QuotaExceededError
+from app.services.analysis_service import AnalysisService, AnalysisUnavailableError
 from app.services.vault_service import (
     ScreenshotNotFoundError,
     ScreenshotInfo,
@@ -245,7 +246,8 @@ def build_screenshots_router() -> APIRouter:
             )
         return workspace_id, None
 
-    def _info_dict(info: ScreenshotInfo) -> dict:
+    def _info_dict(info: ScreenshotInfo, analysis=None) -> dict:
+        """`analysis` is None until the screenshot is analysed (it is then a Ghost)."""
         return {
             "screenshotId": info.screenshot_id,
             "state": info.state,
@@ -255,6 +257,16 @@ def build_screenshots_router() -> APIRouter:
             "duplicateOf": info.duplicate_of,
             "byteSize": info.byte_size,
             "uploadedAt": info.uploaded_at,
+            "analysis": (
+                None
+                if analysis is None
+                else {
+                    "category": analysis.category,
+                    "uncertain": analysis.uncertain,
+                    "epitaph": analysis.epitaph_text,
+                    "epitaphOrigin": analysis.epitaph_origin,
+                }
+            ),
         }
 
     @router.get("", response_model=None)
@@ -274,14 +286,17 @@ def build_screenshots_router() -> APIRouter:
             vault = VaultService(session, workspace_id)
             try:
                 infos = vault.list_screenshots(state=state)
-            except SQLAlchemyError:
+                analyses = AnalysisService(session, workspace_id).summaries()
+            except (SQLAlchemyError, AnalysisUnavailableError):
                 return JSONResponse(
                     status_code=503,
                     content=_error_body("service_unavailable", "Service temporarily unavailable"),
                 )
         finally:
             session.close()
-        return {"screenshots": [_info_dict(i) for i in infos]}
+        return {
+            "screenshots": [_info_dict(i, analyses.get(i.screenshot_id)) for i in infos]
+        }
 
     @router.post("/{screenshot_id}/archive", response_model=None)
     def archive_screenshot(request: Request, screenshot_id: int):

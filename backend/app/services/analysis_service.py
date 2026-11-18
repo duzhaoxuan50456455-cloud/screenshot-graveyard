@@ -90,6 +90,42 @@ class AnalysisService:
         except SQLAlchemyError as exc:
             raise AnalysisUnavailableError("analysis service unavailable") from exc
 
+    def summaries(self) -> dict[int, AnalysisView]:
+        """Current analysis of EVERY analysed screenshot in this workspace (Task 4.1).
+
+        Lets the UI map the Ghost metaphor to real state: a screenshot is a Ghost
+        exactly when it is absent from this mapping (no classification + Epitaph
+        pair yet). Uses the same newest-of-each-kind pair as `get_analysis`.
+        Unreadable persisted analysis is an integrity/service failure, not an
+        ordinary unprocessed Ghost, so callers fail closed rather than silently
+        misrepresenting the screenshot's state.
+        """
+        try:
+            pairs = self._repo.newest_artifact_ids_by_screenshot(
+                (_KIND_CLASSIFICATION, _KIND_EPITAPH)
+            )
+            out: dict[int, AnalysisView] = {}
+            for screenshot_id, kinds in pairs.items():
+                if _KIND_CLASSIFICATION not in kinds or _KIND_EPITAPH not in kinds:
+                    continue
+                class_art = self._repo.get_artifact(kinds[_KIND_CLASSIFICATION])
+                epi_art = self._repo.get_artifact(kinds[_KIND_EPITAPH])
+                if class_art is None or epi_art is None:
+                    continue
+                try:
+                    out[screenshot_id] = self._build(screenshot_id, class_art, epi_art)
+                except AnalysisNotFoundError:
+                    # A deleted/incomplete pair cannot be represented as a
+                    # successful analysis. It is safe to omit only this
+                    # genuinely absent pair; malformed persisted content below
+                    # must fail the entire read rather than create a Ghost.
+                    continue
+                except AnalysisUnavailableError:
+                    raise
+            return out
+        except SQLAlchemyError as exc:
+            raise AnalysisUnavailableError("analysis service unavailable") from exc
+
     def artifact_ids(self, screenshot_id: int) -> tuple[int, int]:
         """(classification_artifact_id, epitaph_artifact_id) of the CURRENT analysis.
 
@@ -174,6 +210,9 @@ class AnalysisService:
 
     def _load(self, screenshot_id: int) -> AnalysisView:
         class_art, epi_art = self._artifacts(screenshot_id)
+        return self._build(screenshot_id, class_art, epi_art)
+
+    def _build(self, screenshot_id: int, class_art, epi_art) -> AnalysisView:
         cv, c = self._current(class_art)
         ev, e = self._current(epi_art)
         try:

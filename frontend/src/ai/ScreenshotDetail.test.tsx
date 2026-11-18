@@ -19,6 +19,7 @@ import { ScreenshotDetail } from './ScreenshotDetail';
 const shot: Screenshot = {
   screenshotId: 7, state: 'active', mimeType: 'image/png', originalFilename: 'notes.png',
   isDuplicate: false, duplicateOf: null, byteSize: 100, uploadedAt: '2026-11-07T00:00:00+00:00',
+  analysis: null,
 };
 const ok = <T,>(data: T) => Promise.resolve({ ok: true as const, data });
 const fail = (status: number, code = 'x') => Promise.resolve({ ok: false as const, status, code, message: 'm' });

@@ -29,6 +29,12 @@ type AnalysisState =
 interface Props {
   screenshot: Screenshot;
   onClose: () => void;
+  /**
+   * Called with the server's CURRENT analysis whenever it changes while this panel
+   * is open (after a successful Revive or a saved edit), so the Ghost / Revived /
+   * Crypt views can reflect the real state without a reload.
+   */
+  onAnalysisChanged?: (analysis: Analysis) => void;
   pollIntervalMs?: number;
   maxPolls?: number;
 }
@@ -43,6 +49,7 @@ interface Props {
 export function ScreenshotDetail({
   screenshot,
   onClose,
+  onAnalysisChanged,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
   maxPolls = DEFAULT_MAX_POLLS,
 }: Props) {
@@ -55,6 +62,12 @@ export function ScreenshotDetail({
   const busyRef = useRef(false);
   const [message, setMessage] = useState<{ kind: 'info' | 'error'; text: string } | null>(null);
   const { state: poll, start, reset } = useOperationPolling(pollIntervalMs, maxPolls);
+  // Keep the latest callback in a ref so an unstable parent function can never
+  // re-trigger the effects below (which would refetch in a loop).
+  const changedRef = useRef(onAnalysisChanged);
+  useEffect(() => {
+    changedRef.current = onAnalysisChanged;
+  }, [onAnalysisChanged]);
 
   const [draftCategory, setDraftCategory] = useState<Category>(CATEGORIES[0]);
   const [draftEpitaph, setDraftEpitaph] = useState('');
@@ -66,6 +79,7 @@ export function ScreenshotDetail({
       setAnalysis({ phase: 'ready', analysis: res.data });
       setDraftCategory(res.data.classification.category);
       setDraftEpitaph(res.data.epitaph.text);
+      changedRef.current?.(res.data);
     } else if (res.status === 404) {
       setAnalysis({ phase: 'none' });
     } else {
@@ -167,6 +181,7 @@ export function ScreenshotDetail({
       const res = await editAnalysis(id, edit);
       if (res.ok) {
         setAnalysis({ phase: 'ready', analysis: res.data });
+        changedRef.current?.(res.data);
         setMessage({ kind: 'info', text: 'Saved as a new version. Earlier versions are kept.' });
       } else {
         setMessage({ kind: 'error', text: describeRequestFailure(res) });

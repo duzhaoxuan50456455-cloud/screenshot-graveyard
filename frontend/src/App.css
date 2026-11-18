@@ -364,3 +364,38 @@
   .ai-pick__item { grid-template-columns: 48px 1fr; }
   .ai-pick__item .gy-btn { grid-column: 1 / -1; }
 }
+
+/* --- Ghost / Revived / Crypt state + Epitaph (Task 4.1) --- */
+.gy-provider {
+  margin: 0 0 1rem;
+  padding: 0.5rem 0.8rem;
+  border-radius: 6px;
+  border: 1px solid #5a4a7a;
+  border-left-width: 4px;
+  font-size: 0.85rem;
+}
+.gy-provider--fake { background: rgba(232, 199, 106, 0.08); }
+.gy-provider--openai { background: rgba(201, 184, 240, 0.1); }
+.gy-card__state {
+  margin: 0;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  border-bottom: 1px solid #3a3350;
+}
+.gy-card__state--ghost { color: #c9b8f0; }
+.gy-card__state--revived { color: #7fd6a0; }
+.gy-card__state--crypt { color: #e8c76a; }
+.gy-card__pending,
+.gy-card__analysis {
+  margin: 0;
+  padding: 0 0.5rem 0.5rem;
+  font-size: 0.8rem;
+}
+.gy-card__pending { opacity: 0.75; font-style: italic; }
+.gy-card__analysis p { margin: 0.25rem 0; overflow-wrap: anywhere; }
+.gy-card--revived { border-color: #3f6b52; }
+.gy-card--ghost { border-style: dashed; }
+.gy-card__actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.gy-epitaph { margin-top: 0.4rem; }
+.gy-epitaph .ai-edit { margin-top: 0.4rem; }

@@ -97,6 +97,19 @@ export async function getWorkspace(
 
 export type ScreenshotState = 'active' | 'archived';
 
+/**
+ * The CURRENT analysis of a screenshot, as the list endpoint reports it. A
+ * screenshot with `analysis: null` has not been analysed: that real state is what
+ * the Ghost metaphor means (Req 10.1).
+ */
+export interface ScreenshotAnalysis {
+  category: string;
+  uncertain: boolean;
+  epitaph: string;
+  /** ai_generate | ai_redo | manual_edit */
+  epitaphOrigin: string;
+}
+
 export interface Screenshot {
   screenshotId: number;
   state: ScreenshotState;
@@ -106,6 +119,7 @@ export interface Screenshot {
   duplicateOf: number | null;
   byteSize: number;
   uploadedAt: string;
+  analysis: ScreenshotAnalysis | null;
 }
 
 export type ListResult =
@@ -123,7 +137,20 @@ function isScreenshot(value: unknown): value is Screenshot {
     typeof v.isDuplicate === 'boolean' &&
     (v.duplicateOf === null || typeof v.duplicateOf === 'number') &&
     typeof v.byteSize === 'number' &&
-    typeof v.uploadedAt === 'string'
+    typeof v.uploadedAt === 'string' &&
+    isAnalysisOrNull(v.analysis)
+  );
+}
+
+function isAnalysisOrNull(value: unknown): value is ScreenshotAnalysis | null {
+  if (value === null) return true;
+  if (typeof value !== 'object' || value === undefined) return false;
+  const a = value as Record<string, unknown>;
+  return (
+    typeof a.category === 'string' &&
+    typeof a.uncertain === 'boolean' &&
+    typeof a.epitaph === 'string' &&
+    typeof a.epitaphOrigin === 'string'
   );
 }
 

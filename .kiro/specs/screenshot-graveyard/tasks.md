@@ -418,7 +418,7 @@ The properties are grouped into these reusable modules:
 
 ### Phase 4 — November 20–25: Costume Contest UX (P0 core; P1 optional only after P0 is stable)
 
-- [ ] 4.1 Build The Crypt view and Ghost/Epitaph interactions
+- [x] 4.1 Build The Crypt view and Ghost/Epitaph interactions
   - Implement the Crypt browsing view and Ghost/Epitaph interactions bound to real state.
   - **Learn:** mapping Halloween metaphors to concrete system states in the UI.
   - **Dependencies:** 1.12, 2.10

@@ -347,6 +347,27 @@ class WorkspaceRepository:
         )
         return list(self._session.scalars(stmt))
 
+    def newest_artifact_ids_by_screenshot(self, kinds: tuple[str, ...]) -> dict[int, dict[str, int]]:
+        """{screenshot_id: {kind: newest artifact id}} for this workspace (one query).
+
+        Workspace-scoped on the artifact AND the source_reference rows. Used to tell
+        which screenshots have been analysed without a query per screenshot.
+        """
+        stmt = (
+            select(models.SourceReference.screenshot_id, models.Artifact.kind, models.Artifact.id)
+            .join(models.Artifact, models.Artifact.id == models.SourceReference.artifact_id)
+            .where(
+                models.Artifact.workspace_id == self._workspace_id,
+                models.SourceReference.workspace_id == self._workspace_id,
+                models.Artifact.kind.in_(kinds),
+            )
+        )
+        out: dict[int, dict[str, int]] = {}
+        for screenshot_id, kind, artifact_id in self._session.execute(stmt):
+            per_kind = out.setdefault(screenshot_id, {})
+            per_kind[kind] = max(artifact_id, per_kind.get(kind, 0))
+        return out
+
     def list_source_references(self, artifact_id: int) -> list[models.SourceReference]:
         self._require_owned(models.Artifact, artifact_id)
         stmt = select(models.SourceReference).where(
