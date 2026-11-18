@@ -402,7 +402,7 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** a threaded test issues concurrent Redo+Edit (and Redo+Redo) and asserts both commit, version count rises by the number of operations, version numbers are distinct, priors retrievable, and `current_version_id` is valid.
   - **Priority:** P0
 
-- [ ] 3.8 Write the PBT-VERSIONING module (REQUIRED)
+- [x] 3.8 Write the PBT-VERSIONING module (REQUIRED)
   - Implement Properties P15, P16, P17 with Hypothesis ≥100 iterations, including the concurrent-completion case within P15. *(CORRECTION 3 — REQUIRED, non-optional: covers append-only versions P15 and provenance P16.)*
   - **Dependencies:** 3.4, 3.5, 3.6, 3.7
   - **Requirements:** 4.5, 5.5, 6.9, 6.10, 7.3, 7.4, 7.5, 7.6, 7.8, 8.6, 14.3, 14.4, INV-5, INV-6, INV-7, P15, P16, P17
