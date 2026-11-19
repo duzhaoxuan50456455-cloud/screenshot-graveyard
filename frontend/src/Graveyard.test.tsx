@@ -58,6 +58,8 @@ beforeEach(() => {
   listScreenshots.mockResolvedValue({ ok: true, screenshots: [] });
 });
 
+const openCrypt = () => fireEvent.click(screen.getByRole('button', { name: /the crypt/i }));
+
 describe('Graveyard', () => {
   it('shows a loading state while the workspace starts', () => {
     getWorkspace.mockReturnValue(new Promise(() => {}));
@@ -74,6 +76,7 @@ describe('Graveyard', () => {
   it('renders empty Ghost and Crypt sections when there are no screenshots', async () => {
     render(<Graveyard />);
     expect(await screen.findByText(/no ghosts yet/i)).toBeInTheDocument();
+    openCrypt();
     expect(screen.getByText(/the crypt is empty/i)).toBeInTheDocument();
   });
 
@@ -90,6 +93,7 @@ describe('Graveyard', () => {
     expect(
       await screen.findByRole('button', { name: /safe burial: archive file-1/i }),
     ).toBeInTheDocument();
+    openCrypt();
     expect(
       screen.getByRole('button', { name: /resurrection: restore file-2/i }),
     ).toBeInTheDocument();
@@ -146,6 +150,8 @@ describe('Graveyard', () => {
     });
     render(<Graveyard />);
     fireEvent.click(await screen.findByRole('button', { name: /safe burial/i }));
+    await screen.findByText(/moved to the crypt/i);
+    openCrypt();
     expect(
       await screen.findByRole('button', { name: /resurrection: restore file-55/i }),
     ).toBeInTheDocument();
@@ -177,6 +183,8 @@ describe('Graveyard', () => {
       state: 'archived',
     });
     render(<Graveyard />);
+    await screen.findByRole('button', { name: /the crypt/i });
+    openCrypt();
     const btn = await screen.findByRole('button', { name: /resurrection/i });
     fireEvent.click(btn);
     expect(await screen.findByText(/integrity check/i)).toBeInTheDocument();
@@ -209,5 +217,21 @@ describe('Graveyard', () => {
     render(<Graveyard />);
     expect(await screen.findByText(/could not load your screenshots/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
+  });
+
+  it('Quiet Assistant reacts to card selection and hands the selection to Study Notes', async () => {
+    listScreenshots.mockResolvedValue({
+      ok: true,
+      screenshots: [shot({ screenshotId: 31 }), shot({ screenshotId: 32 })],
+    });
+    render(<Graveyard />);
+    expect(await screen.findByTestId('qa-text')).toHaveTextContent(/select screenshots/i);
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select file-32.png' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select file-31.png' }));
+    expect(await screen.findByRole('button', { name: 'Review consent' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Something else' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Set up Study Note' }));
+    expect(screen.getByRole('button', { name: 'Creations' })).toHaveAttribute('aria-current', 'page');
+    expect(await screen.findByTestId('selection-count')).toHaveTextContent('2 screenshots selected');
   });
 });

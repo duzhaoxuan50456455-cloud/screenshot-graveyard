@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import {
   archiveScreenshot,
   getWorkspace,
@@ -14,12 +14,21 @@ import { describeOrigin } from './ai/messages';
 import { useProviderMode } from './ai/PrivacyNotice';
 import { ScreenshotDetail } from './ai/ScreenshotDetail';
 import { StudyNotesPanel } from './ai/StudyNotesPanel';
+import { QuietAssistant } from './assistant/QuietAssistant';
 import { partitionScreenshots, type CardKind } from './graveyardState';
 
 type LoadPhase =
   | { phase: 'starting' }
   | { phase: 'ready' }
   | { phase: 'error'; message: string };
+
+type View = 'workspace' | 'creations' | 'crypt';
+
+const VIEWS: { id: View; label: string }[] = [
+  { id: 'workspace', label: 'Workspace' },
+  { id: 'creations', label: 'Creations' },
+  { id: 'crypt', label: 'The Crypt' },
+];
 
 // A short, factual batch outcome message. No AI/classification claims.
 type Notice = { kind: 'info' | 'error'; text: string } | null;
@@ -39,6 +48,10 @@ export function Graveyard() {
   const [notice, setNotice] = useState<Notice>(null);
   const [pendingId, setPendingId] = useState<number | null>(null);
   const [openId, setOpenId] = useState<number | null>(null);
+  const [view, setView] = useState<View>('workspace');
+  const [selectedIds, setSelectedIds] = useState<number[]>([]); // user order, session only
+  const [consentRefresh, setConsentRefresh] = useState(0);
+  const [preselect, setPreselect] = useState<{ ids: number[]; nonce: number } | undefined>();
   const provider = useProviderMode(); // read-only; 'unknown' until confirmed
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -96,6 +109,19 @@ export function Graveyard() {
       ),
     );
   }, []);
+
+  const toggleSelected = useCallback((id: number) => {
+    setSelectedIds((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
+  }, []);
+
+  // Drop selections whose screenshot is no longer in the list.
+  useEffect(() => {
+    setSelectedIds((cur) =>
+      cur.every((id) => screenshots.some((s) => s.screenshotId === id))
+        ? cur
+        : cur.filter((id) => screenshots.some((s) => s.screenshotId === id)),
+    );
+  }, [screenshots]);
 
   const onUpload = useCallback(
     async (fileList: FileList | null) => {
@@ -222,6 +248,18 @@ export function Graveyard() {
 
   const { ghosts, revived, crypt: archived } = partitionScreenshots(screenshots);
 
+  const onNavKeyDown = (e: KeyboardEvent, index: number) => {
+    let next = -1;
+    if (e.key === 'ArrowRight') next = (index + 1) % VIEWS.length;
+    else if (e.key === 'ArrowLeft') next = (index - 1 + VIEWS.length) % VIEWS.length;
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = VIEWS.length - 1;
+    if (next < 0) return;
+    e.preventDefault();
+    setView(VIEWS[next].id);
+    document.getElementById(`gy-nav-${VIEWS[next].id}`)?.focus();
+  };
+
   const renderCard = (s: Screenshot, kind: CardKind) => {
     const label = s.originalFilename || `Screenshot #${s.screenshotId}`;
     const isPending = pendingId === s.screenshotId;
@@ -233,6 +271,15 @@ export function Graveyard() {
           alt={`Screenshot ${label}`}
           loading="lazy"
         />
+        <label className="gy-card__select">
+          <input
+            type="checkbox"
+            checked={selectedIds.includes(s.screenshotId)}
+            onChange={() => toggleSelected(s.screenshotId)}
+            aria-label={`Select ${label}`}
+          />{' '}
+          Select
+        </label>
         <p className={`gy-card__state gy-card__state--${kind}`}>
           <span aria-hidden="true" className="gy-card__glyph">
             {kind === 'ghost' ? '◌' : kind === 'revived' ? '✦' : '▣'}
@@ -338,31 +385,22 @@ export function Graveyard() {
           )}
         </p>
       )}
-      <form
-        className="gy-upload"
-        onSubmit={(e) => {
-          e.preventDefault();
-          onUpload(fileInputRef.current?.files ?? null);
-        }}
-      >
-        <label className="gy-upload__label" htmlFor="gy-file">
-          Add screenshots to the graveyard
-        </label>
-        <input
-          id="gy-file"
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          multiple
-          className="gy-upload__input"
-          onChange={(e) => onUpload(e.target.files)}
-          disabled={uploading}
-        />
-        <p className="gy-upload__hint">
-          Images only, up to 15 MB each. Your screenshots stay in your private
-          workspace.
-        </p>
-      </form>
+      <nav className="gy-nav" aria-label="Main">
+        {VIEWS.map((v, i) => (
+          <button
+            key={v.id}
+            id={`gy-nav-${v.id}`}
+            type="button"
+            className="gy-nav__btn"
+            aria-current={view === v.id ? 'page' : undefined}
+            onClick={() => setView(v.id)}
+            onKeyDown={(e) => onNavKeyDown(e, i)}
+          >
+            {v.label}
+            {v.id === 'crypt' && <span className="gy-nav__count"> ({archived.length})</span>}
+          </button>
+        ))}
+      </nav>
 
       {uploading && (
         <p className="gy__status" role="status" aria-live="polite">
@@ -389,7 +427,33 @@ export function Graveyard() {
         </p>
       )}
 
-      <div className="gy-sections">
+      {view === 'workspace' && (
+        <div className="gy-sections" id="gy-view-workspace">
+        <form
+          className="gy-upload"
+          onSubmit={(e) => {
+            e.preventDefault();
+            onUpload(fileInputRef.current?.files ?? null);
+          }}
+        >
+          <label className="gy-upload__label" htmlFor="gy-file">
+            Add screenshots to the graveyard
+          </label>
+          <input
+            id="gy-file"
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="gy-upload__input"
+            onChange={(e) => onUpload(e.target.files)}
+            disabled={uploading}
+          />
+          <p className="gy-upload__hint">
+            Images only, up to 15 MB each. Your screenshots stay in your private
+            workspace.
+          </p>
+        </form>
         <section className="gy-section" aria-labelledby="gy-ghost-h">
           <h2 id="gy-ghost-h" className="gy-section__h">
             Ghosts <span className="gy-section__count">({ghosts.length})</span>
@@ -418,41 +482,68 @@ export function Graveyard() {
             Analyzed screenshots, with their category and Epitaph.
           </p>
           {revived.length === 0 ? (
-            <p className="gy-empty">Nothing revived yet.</p>
+            <p className="gy-empty">
+              Nothing revived yet. Open a Ghost and choose Revive to analyze it.
+            </p>
           ) : (
             <ul className="gy-grid" aria-label="Revived screenshots">
               {revived.map((s) => renderCard(s, 'revived'))}
             </ul>
           )}
         </section>
+        </div>
+      )}
 
+      {view === 'crypt' && (
+        <div className="gy-sections" id="gy-view-crypt">
         <section className="gy-section" aria-labelledby="gy-crypt-h">
           <h2 id="gy-crypt-h" className="gy-section__h">
             The Crypt <span className="gy-section__count">({archived.length})</span>
           </h2>
           <p className="gy-section__sub">
-            Exactly your archived (Safe Buried) screenshots. Recoverable — nothing is ever deleted.
+            Exactly your archived (Safe Buried) screenshots. Recoverable, nothing is ever deleted.
           </p>
           {archived.length === 0 ? (
-            <p className="gy-empty">The Crypt is empty.</p>
+            <p className="gy-empty">
+              The Crypt is empty. Use Safe Burial on a screenshot in the Workspace to
+              archive it here. You can bring it back any time.
+            </p>
           ) : (
             <ul className="gy-grid" aria-label="The Crypt">
               {archived.map((s) => renderCard(s, 'crypt'))}
             </ul>
           )}
         </section>
-      </div>
+        </div>
+      )}
 
       {openId !== null && screenshots.some((s) => s.screenshotId === openId) && (
         <ScreenshotDetail
           key={openId}
           screenshot={screenshots.find((s) => s.screenshotId === openId) as Screenshot}
-          onClose={() => setOpenId(null)}
+          onClose={() => {
+            setOpenId(null);
+            setConsentRefresh((n) => n + 1);
+          }}
           onAnalysisChanged={onAnalysisChanged}
         />
       )}
 
-      <StudyNotesPanel screenshots={screenshots} />
+      <div hidden={view !== 'creations'} id="gy-view-creations">
+        <StudyNotesPanel screenshots={screenshots} preselect={preselect} />
+      </div>
+      <QuietAssistant
+        selected={selectedIds
+          .map((id) => screenshots.find((s) => s.screenshotId === id))
+          .filter((s): s is Screenshot => s !== undefined)}
+        refreshToken={consentRefresh}
+        onOpen={setOpenId}
+        onSetUpStudyNote={(ids) => {
+          setPreselect((p) => ({ ids, nonce: (p?.nonce ?? 0) + 1 }));
+          setView('creations');
+        }}
+        onAnalysisChanged={onAnalysisChanged}
+      />
     </section>
   );
 }

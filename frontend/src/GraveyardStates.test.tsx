@@ -66,6 +66,9 @@ async function renderWith(list: Screenshot[]) {
   await screen.findByRole('region', { name: /ghosts/i });
 }
 
+const openCrypt = () => fireEvent.click(screen.getByRole('button', { name: /the crypt/i }));
+const openWorkspace = () => fireEvent.click(screen.getByRole('button', { name: /workspace/i }));
+
 beforeEach(() => {
   vi.clearAllMocks();
   c.getWorkspace.mockResolvedValue({ ok: true, active: true });
@@ -111,9 +114,10 @@ describe('Graveyard views', () => {
     ]);
     expect(cardsIn(/^ghosts/i)).toEqual(['s1.png', 's5.png']);
     expect(cardsIn(/^revived/i)).toEqual(['s2.png']);
-    expect(cardsIn(/^the crypt/i)).toEqual(['s3.png', 's4.png']);       // exactly the archived ones
     expect(screen.getByRole('heading', { name: /ghosts \(2\)/i })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /revived \(1\)/i })).toBeInTheDocument();
+    openCrypt();
+    expect(cardsIn(/^the crypt/i)).toEqual(['s3.png', 's4.png']);       // exactly the archived ones
     expect(screen.getByRole('heading', { name: /the crypt \(2\)/i })).toBeInTheDocument();
   });
 
@@ -121,6 +125,7 @@ describe('Graveyard views', () => {
     await renderWith([shot(1), shot(2, { analysis: analysed() }), shot(3, { state: 'archived' })]);
     expect(within(region(/^ghosts/i)).getByText(/Ghost: Pending, not analyzed yet/)).toBeInTheDocument();
     expect(within(region(/^revived/i)).getByText(/Revived: analyzed/)).toBeInTheDocument();
+    openCrypt();
     expect(within(region(/^the crypt/i)).getByText(/In The Crypt: archived, original kept/)).toBeInTheDocument();
   });
 
@@ -128,12 +133,14 @@ describe('Graveyard views', () => {
     await renderWith([shot(9, { state: 'archived', analysis: analysed() })]);
     expect(cardsIn(/^ghosts/i)).toEqual([]);
     expect(cardsIn(/^revived/i)).toEqual([]);
-    expect(cardsIn(/^the crypt/i)).toEqual(['s9.png']);
     expect(screen.getByText(/no ghosts: nothing is waiting for analysis/i)).toBeInTheDocument();
+    openCrypt();
+    expect(cardsIn(/^the crypt/i)).toEqual(['s9.png']);
   });
 
   it('keeps an analysed screenshot\u2019s category and Epitaph visible while it rests in the Crypt', async () => {
     await renderWith([shot(4, { state: 'archived', analysis: analysed({ category: 'Study/Knowledge', epitaph: 'Buried caption' }) })]);
+    openCrypt();
     const crypt = region(/^the crypt/i);
     expect(within(crypt).getByText('Study/Knowledge')).toBeInTheDocument();
     expect(within(crypt).getByTestId('epitaph-4')).toHaveTextContent('Buried caption');
@@ -145,6 +152,7 @@ describe('Graveyard views', () => {
     await renderWith([]);
     expect(screen.getByText(/no ghosts yet/i)).toBeInTheDocument();
     expect(screen.getByText(/nothing revived yet/i)).toBeInTheDocument();
+    openCrypt();
     expect(screen.getByText(/the crypt is empty/i)).toBeInTheDocument();
   });
 
@@ -152,6 +160,7 @@ describe('Graveyard views', () => {
     await renderWith([shot(1), shot(2, { analysis: analysed() }), shot(3, { state: 'archived' })]);
     expect(screen.getByRole('list', { name: 'Ghosts' })).toBeInTheDocument();
     expect(screen.getByRole('list', { name: 'Revived screenshots' })).toBeInTheDocument();
+    openCrypt();
     expect(screen.getByRole('list', { name: 'The Crypt' })).toBeInTheDocument();
     for (const b of screen.getAllByRole('button')) expect(b).toHaveAccessibleName();
   });
@@ -161,9 +170,14 @@ describe('Graveyard views', () => {
     await renderWith([shot(2, { analysis: analysed({ epitaph: 'Keep me' }) })]);
     c.listScreenshots.mockResolvedValue({ ok: true, screenshots: [shot(2, { state: 'archived', analysis: analysed({ epitaph: 'Keep me' }) })] });
     fireEvent.click(screen.getByRole('button', { name: /safe burial: archive s2\.png/i }));
+    await screen.findByText(/moved to the crypt/i);
+    await waitFor(() => expect(cardsIn(/^revived/i)).toEqual([]));
+    expect(screen.queryByTestId('epitaph-2')).not.toBeInTheDocument();
+    openCrypt();
     await waitFor(() => expect(cardsIn(/^the crypt/i)).toEqual(['s2.png']));
-    expect(cardsIn(/^revived/i)).toEqual([]);
     expect(screen.getByTestId('epitaph-2')).toHaveTextContent('Keep me');
+    openWorkspace();
+    expect(cardsIn(/^ghosts/i)).toEqual([]);
   });
 });
 
@@ -340,11 +354,68 @@ describe('Epitaph interactions (Req 5.5)', () => {
   it('is available for a screenshot resting in The Crypt (originals are untouched)', async () => {
     a.editAnalysis.mockImplementation(() => ok(serverAnalysis(4, 'Edited in crypt')));
     await renderWith([shot(4, { state: 'archived', analysis: analysed() })]);
+    openCrypt();
     fireEvent.click(within(region(/^the crypt/i)).getByRole('button', { name: /edit epitaph/i }));
     fireEvent.change(screen.getByLabelText(/epitaph for/i), { target: { value: 'Edited in crypt' } });
     fireEvent.click(screen.getByRole('button', { name: /save epitaph/i }));
     await waitFor(() => expect(screen.getByTestId('epitaph-4')).toHaveTextContent('Edited in crypt'));
     expect(cardsIn(/^the crypt/i)).toEqual(['s4.png']);          // still archived
     expect(c.restoreScreenshot).not.toHaveBeenCalled();
+  });
+});
+
+// ------------------------------------------------------------------- Navigation
+
+describe('Top-level navigation', () => {
+  const navBtn = (name: RegExp) => within(screen.getByRole('navigation', { name: /main/i })).getByRole('button', { name });
+
+  it('offers Workspace, Creations and The Crypt, with Workspace current first', async () => {
+    await renderWith([shot(1)]);
+    expect(navBtn(/workspace/i)).toHaveAttribute('aria-current', 'page');
+    expect(navBtn(/creations/i)).not.toHaveAttribute('aria-current');
+    expect(navBtn(/the crypt/i)).not.toHaveAttribute('aria-current');
+  });
+
+  it('switches views by click and shows only that view', async () => {
+    await renderWith([shot(1), shot(3, { state: 'archived' })]);
+    expect(screen.getByLabelText(/add screenshots/i)).toBeInTheDocument();
+    fireEvent.click(navBtn(/creations/i));
+    expect(navBtn(/creations/i)).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('heading', { name: /^study notes$/i, level: 2 })).toBeVisible();
+    expect(screen.queryByLabelText(/add screenshots/i)).not.toBeInTheDocument();
+    fireEvent.click(navBtn(/the crypt/i));
+    expect(navBtn(/the crypt/i)).toHaveAttribute('aria-current', 'page');
+    expect(screen.queryByRole('region', { name: /^ghosts/i })).not.toBeInTheDocument();
+    expect(cardsIn(/^the crypt/i)).toEqual(['s3.png']);
+  });
+
+  it('is operable with the keyboard (arrow keys, Home and End move focus and view)', async () => {
+    await renderWith([]);
+    const ws = navBtn(/workspace/i);
+    ws.focus();
+    fireEvent.keyDown(ws, { key: 'ArrowRight' });
+    expect(navBtn(/creations/i)).toHaveAttribute('aria-current', 'page');
+    expect(navBtn(/creations/i)).toHaveFocus();
+    fireEvent.keyDown(navBtn(/creations/i), { key: 'End' });
+    expect(navBtn(/the crypt/i)).toHaveAttribute('aria-current', 'page');
+    fireEvent.keyDown(navBtn(/the crypt/i), { key: 'ArrowRight' });
+    expect(navBtn(/workspace/i)).toHaveAttribute('aria-current', 'page');
+    fireEvent.keyDown(navBtn(/workspace/i), { key: 'ArrowLeft' });
+    expect(navBtn(/the crypt/i)).toHaveFocus();
+  });
+
+  it('shows the Crypt count from server data and a useful empty state', async () => {
+    await renderWith([shot(3, { state: 'archived' })]);
+    expect(navBtn(/the crypt/i)).toHaveTextContent('(1)');
+  });
+
+  it('collapses the long privacy details behind an expander', async () => {
+    await renderWith([]);
+    fireEvent.click(navBtn(/creations/i));
+    const note = screen.getByRole('note', { name: /privacy notice/i });
+    const details = note.querySelector('details') as HTMLDetailsElement;
+    expect(details).not.toBeNull();
+    expect(details.open).toBe(false);
+    expect(within(note).getByText(/read the full privacy details/i)).toBeInTheDocument();
   });
 });

@@ -27,6 +27,8 @@ interface Props {
   screenshots: Screenshot[];
   pollIntervalMs?: number;
   maxPolls?: number;
+  /** Hand-off from the Quiet Assistant: replaces the selection when `nonce` changes. */
+  preselect?: { ids: number[]; nonce: number };
 }
 
 type ConsentMap = Record<number, boolean | 'unknown'>;
@@ -35,6 +37,7 @@ export function StudyNotesPanel({
   screenshots,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
   maxPolls = DEFAULT_MAX_POLLS,
+  preselect,
 }: Props) {
   const [selected, setSelected] = useState<number[]>([]); // user order
   const [consent, setConsentMap] = useState<ConsentMap>({});
@@ -86,6 +89,16 @@ export function StudyNotesPanel({
     const res = await getConsent(id);
     setConsentMap((m) => ({ ...m, [id]: res.ok ? res.data : 'unknown' }));
   };
+
+  const lastNonce = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (!preselect || lastNonce.current === preselect.nonce) return;
+    lastNonce.current = preselect.nonce;
+    const ids = preselect.ids.slice(0, MAX_SELECTION);
+    setSelected(ids);
+    setMessage(null);
+    ids.forEach((id) => void loadConsent(id));
+  }, [preselect]);
 
   const toggle = (id: number) => {
     setMessage(null);

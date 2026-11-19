@@ -30,6 +30,15 @@ export function PrivacyNotice({
       <p className="ai-privacy__title">
         <strong>Before you Revive: provider and privacy</strong>
       </p>
+      <p className="ai-hint">
+        {mode === 'fake'
+          ? 'Demo mode: nothing is sent to an external AI service.'
+          : mode === 'openai'
+            ? `Image content of ${target} may be sent to an external AI provider.`
+            : 'Provider status is unconfirmed.'}
+      </p>
+      <details className="ai-privacy__more">
+        <summary>Read the full privacy details</summary>
       <ul className="ai-privacy__list">
         <li>
           Your {scope === 'one' ? 'screenshot is' : 'screenshots are'} stored
@@ -59,6 +68,7 @@ export function PrivacyNotice({
           why you saved something, not a fact.
         </li>
       </ul>
+      </details>
     </div>
   );
 }
