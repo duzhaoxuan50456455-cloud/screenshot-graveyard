@@ -467,3 +467,10 @@
 .qa__text { margin: 0.25rem 0; }
 .qa__actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .qa__result--error { color: #b00020; }
+
+/* --- Remediation: one primary action per stage --- */
+.gy-btn--quiet { background: none; border-color: transparent; text-decoration: underline; font-weight: 500; }
+.gy-selbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; margin: 0.5rem 0; padding: 0.4rem 0.7rem; border: 1px solid #5a4a7a; border-radius: 6px; }
+.gy-selbar[data-locked='true'] { border-color: #a78bdb; }
+.qa__review { margin: 0.4rem 0; }
+.qa__review-list { margin: 0.25rem 0; padding-left: 1.1rem; }

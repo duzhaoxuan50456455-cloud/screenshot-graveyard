@@ -67,7 +67,8 @@ describe('ScreenshotDetail: privacy + consent gating', () => {
     renderDetail();
     expect(await screen.findByText(/Provider mode could not be confirmed/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /revive: analyze with ai/i })).toBeDisabled();
-    expect(screen.getByText(/Provider status must be confirmed/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Provider status could not be confirmed/i).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/unconfirmed/i)).toBeNull();
   });
 
   it('does NOT invoke AI on open: only reads consent and analysis', async () => {

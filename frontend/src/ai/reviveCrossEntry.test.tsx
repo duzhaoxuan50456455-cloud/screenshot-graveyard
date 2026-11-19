@@ -38,7 +38,11 @@ const renderBoth = (id: number, extra: { maxPolls?: number } = {}) =>
     </>,
   );
 
-const assistantRevive = () => screen.findByRole('button', { name: /Revive 1 ghost/ });
+// Prepare then Review: returns the Confirm button; nothing is submitted until it is clicked.
+const assistantRevive = async () => {
+  fireEvent.click(await screen.findByRole('button', { name: /Revive 1 ghost/ }));
+  return screen.findByRole('button', { name: /Confirm and Revive/ });
+};
 const detailRevive = () => screen.findByRole('button', { name: /revive: analyze with ai/i });
 
 beforeEach(() => {
@@ -179,7 +183,7 @@ describe('Quiet Assistant operation states', () => {
         onAnalysisChanged={vi.fn()} pollIntervalMs={1} maxPolls={maxPolls}
       />,
     );
-    fireEvent.click(await screen.findByRole('button', { name: /Revive 1 ghost/ }));
+    fireEvent.click(await assistantRevive());
   };
   const state = () => screen.findByTestId('qa-op');
 

@@ -52,13 +52,18 @@ function shot(partial: Partial<Screenshot> & { screenshotId: number }): Screensh
   };
 }
 
+const openFirst = async (name: RegExp) => {
+  fireEvent.click(await screen.findByRole('button', { name: /^open file-/i }));
+  return screen.findByRole('button', { name });
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   getWorkspace.mockResolvedValue({ ok: true, active: true });
   listScreenshots.mockResolvedValue({ ok: true, screenshots: [] });
 });
 
-const openCrypt = () => fireEvent.click(screen.getByRole('button', { name: /the crypt/i }));
+const openCrypt = () => fireEvent.click(screen.getByRole('button', { name: /^the crypt/i }));
 
 describe('Graveyard', () => {
   it('shows a loading state while the workspace starts', () => {
@@ -89,14 +94,19 @@ describe('Graveyard', () => {
       ],
     });
     render(<Graveyard />);
-    // Each active screenshot gets a Safe Burial button; archived gets Resurrection.
-    expect(
-      await screen.findByRole('button', { name: /safe burial: archive file-1/i }),
-    ).toBeInTheDocument();
+    // Cards carry no lifecycle buttons; Safe Burial and Resurrection live in the detail drawer.
+    await screen.findByRole('button', { name: /^open file-1/i });
+    expect(screen.queryByRole('button', { name: /safe burial|resurrection|revive/i })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /^open file-1/i }));
+    expect(await screen.findByRole('button', { name: /safe burial: move to the crypt/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^close$/i }));
     openCrypt();
-    expect(
-      screen.getByRole('button', { name: /resurrection: restore file-2/i }),
-    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /safe burial|resurrection/i })).toBeNull();
+    expect(screen.getByTestId('crypt-gallery-note')).toHaveTextContent(
+      /does not remove the photo from your phone gallery/i,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /^open file-2/i }));
+    expect(await screen.findByRole('button', { name: /resurrection: restore from the crypt/i })).toBeInTheDocument();
   });
 
   it('shows a non-intrusive duplicate indicator', async () => {
@@ -132,7 +142,7 @@ describe('Graveyard', () => {
       state: 'archived',
     });
     render(<Graveyard />);
-    const btn = await screen.findByRole('button', { name: /safe burial/i });
+    const btn = await openFirst(/safe burial/i);
     fireEvent.click(btn);
     await waitFor(() => expect(archiveScreenshot).toHaveBeenCalledWith(5));
     expect(await screen.findByText(/moved to the crypt/i)).toBeInTheDocument();
@@ -149,12 +159,11 @@ describe('Graveyard', () => {
       state: 'archived',
     });
     render(<Graveyard />);
-    fireEvent.click(await screen.findByRole('button', { name: /safe burial/i }));
+    fireEvent.click(await openFirst(/safe burial/i));
     await screen.findByText(/moved to the crypt/i);
     openCrypt();
-    expect(
-      await screen.findByRole('button', { name: /resurrection: restore file-55/i }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /^open file-55/i })).toBeInTheDocument();
+    expect(screen.getByTestId('crypt-gallery-note')).toBeInTheDocument();
   });
 
   it('does not claim archive success for a failed lifecycle response', async () => {
@@ -166,7 +175,7 @@ describe('Graveyard', () => {
       state: 'active',
     });
     render(<Graveyard />);
-    fireEvent.click(await screen.findByRole('button', { name: /safe burial/i }));
+    fireEvent.click(await openFirst(/safe burial/i));
     expect(await screen.findByText(/safe burial did not complete/i)).toBeInTheDocument();
     expect(screen.queryByText(/moved to the crypt/i)).not.toBeInTheDocument();
   });
@@ -185,7 +194,7 @@ describe('Graveyard', () => {
     render(<Graveyard />);
     await screen.findByRole('button', { name: /the crypt/i });
     openCrypt();
-    const btn = await screen.findByRole('button', { name: /resurrection/i });
+    const btn = await openFirst(/resurrection/i);
     fireEvent.click(btn);
     expect(await screen.findByText(/integrity check/i)).toBeInTheDocument();
   });

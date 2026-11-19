@@ -10,7 +10,7 @@ import {
 } from './api/client';
 import type { Analysis } from './api/ai';
 import { EpitaphEditor } from './ai/EpitaphEditor';
-import { describeOrigin } from './ai/messages';
+import { CRYPT_GALLERY_NOTE, describeOrigin } from './ai/messages';
 import { useProviderMode } from './ai/PrivacyNotice';
 import { ScreenshotDetail } from './ai/ScreenshotDetail';
 import { StudyNotesPanel } from './ai/StudyNotesPanel';
@@ -48,6 +48,9 @@ export function Graveyard() {
   const [notice, setNotice] = useState<Notice>(null);
   const [pendingId, setPendingId] = useState<number | null>(null);
   const [openId, setOpenId] = useState<number | null>(null);
+  const [batch, setBatch] = useState<{ ids: number[]; done: number } | null>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
+  const [restoreFocus, setRestoreFocus] = useState(0);
   const [view, setView] = useState<View>('workspace');
   const [selectedIds, setSelectedIds] = useState<number[]>([]); // user order, session only
   const [consentRefresh, setConsentRefresh] = useState(0);
@@ -109,6 +112,22 @@ export function Graveyard() {
       ),
     );
   }, []);
+
+  // Remember what had focus so closing the drawer can put it back.
+  const openDetail = useCallback((id: number) => {
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active !== document.body) openerRef.current = active;
+    setOpenId(id);
+  }, []);
+
+  // After the drawer closes: back to the opener, or to the view navigation if it is gone.
+  useEffect(() => {
+    if (restoreFocus === 0) return;
+    const opener = openerRef.current;
+    openerRef.current = null;
+    if (opener && opener.isConnected) opener.focus();
+    else document.querySelector<HTMLElement>('.gy-nav__btn[aria-current="page"]')?.focus();
+  }, [restoreFocus]);
 
   const toggleSelected = useCallback((id: number) => {
     setSelectedIds((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
@@ -262,7 +281,7 @@ export function Graveyard() {
 
   const renderCard = (s: Screenshot, kind: CardKind) => {
     const label = s.originalFilename || `Screenshot #${s.screenshotId}`;
-    const isPending = pendingId === s.screenshotId;
+    const locked = batch !== null;
     return (
       <li key={s.screenshotId} className={`gy-card gy-card--${kind}`} data-kind={kind}>
         <img
@@ -276,6 +295,7 @@ export function Graveyard() {
             type="checkbox"
             checked={selectedIds.includes(s.screenshotId)}
             onChange={() => toggleSelected(s.screenshotId)}
+            disabled={locked}
             aria-label={`Select ${label}`}
           />{' '}
           Select
@@ -301,7 +321,7 @@ export function Graveyard() {
         </div>
         {s.analysis === null ? (
           <p className="gy-card__pending">
-            No Epitaph yet. {kind === 'crypt' ? 'It was archived before analysis.' : 'Revive it to analyze it.'}
+            No Epitaph yet. {kind === 'crypt' ? 'It was archived before analysis.' : 'Select it to get a suggestion.'}
           </p>
         ) : (
           <div className="gy-card__analysis">
@@ -322,46 +342,14 @@ export function Graveyard() {
           </div>
         )}
         <div className="gy-card__actions">
-          {kind === 'ghost' ? (
-            <button
-              type="button"
-              className="gy-btn gy-btn--revive"
-              onClick={() => setOpenId(s.screenshotId)}
-              aria-label={`Revive (start AI analysis): open ${label} to review consent first`}
-            >
-              Revive…
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="gy-btn"
-              onClick={() => setOpenId(s.screenshotId)}
-              aria-label={`Open ${label} (consent and AI)`}
-            >
-              Open
-            </button>
-          )}
-          {kind !== 'crypt' ? (
-            <button
-              type="button"
-              className="gy-btn gy-btn--bury"
-              onClick={() => onArchive(s.screenshotId)}
-              disabled={busy}
-              aria-label={`Safe Burial: archive ${label}`}
-            >
-              {isPending ? 'Burying...' : 'Safe Burial'}
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="gy-btn gy-btn--revive"
-              onClick={() => onRestore(s.screenshotId)}
-              disabled={busy}
-              aria-label={`Resurrection: restore ${label}`}
-            >
-              {isPending ? 'Resurrecting...' : 'Resurrection'}
-            </button>
-          )}
+          <button
+            type="button"
+            className="gy-btn gy-btn--quiet"
+            onClick={() => openDetail(s.screenshotId)}
+            aria-label={`Open ${label}`}
+          >
+            Open
+          </button>
         </div>
       </li>
     );
@@ -425,6 +413,29 @@ export function Graveyard() {
             Try again
           </button>
         </p>
+      )}
+
+      {selectedIds.length > 0 && view !== 'creations' && (
+        <div className="gy-selbar" role="region" aria-label="Selection" data-locked={batch !== null}>
+          <strong data-testid="selected-count">
+            {selectedIds.length} selected
+          </strong>
+          {batch ? (
+            <span role="status" aria-live="polite" data-testid="batch-status">
+              Processing {Math.min(batch.done + 1, batch.ids.length)} of {batch.ids.length}. Selection is locked:{' '}
+              {batch.ids
+                .map((id) => screenshots.find((x) => x.screenshotId === id)?.originalFilename || `#${id}`)
+                .join(', ')}
+            </span>
+          ) : (
+            <>
+              <span className="ai-hint">The Quiet Assistant below suggests one next step.</span>
+              <button type="button" className="gy-btn gy-btn--quiet" onClick={() => setSelectedIds([])}>
+                Clear selection
+              </button>
+            </>
+          )}
+        </div>
       )}
 
       {view === 'workspace' && (
@@ -503,10 +514,11 @@ export function Graveyard() {
           <p className="gy-section__sub">
             Exactly your archived (Safe Buried) screenshots. Recoverable, nothing is ever deleted.
           </p>
+          <p className="ai-hint" data-testid="crypt-gallery-note">{CRYPT_GALLERY_NOTE}</p>
           {archived.length === 0 ? (
             <p className="gy-empty">
-              The Crypt is empty. Use Safe Burial on a screenshot in the Workspace to
-              archive it here. You can bring it back any time.
+              The Crypt is empty. Open a screenshot in the Workspace and choose Safe
+              Burial to archive it here. You can bring it back any time.
             </p>
           ) : (
             <ul className="gy-grid" aria-label="The Crypt">
@@ -524,8 +536,12 @@ export function Graveyard() {
           onClose={() => {
             setOpenId(null);
             setConsentRefresh((n) => n + 1);
+            setRestoreFocus((n) => n + 1);
           }}
           onAnalysisChanged={onAnalysisChanged}
+          onArchive={onArchive}
+          onRestore={onRestore}
+          lifecycleBusy={busy && pendingId === openId}
         />
       )}
 
@@ -537,7 +553,8 @@ export function Graveyard() {
           .map((id) => screenshots.find((s) => s.screenshotId === id))
           .filter((s): s is Screenshot => s !== undefined)}
         refreshToken={consentRefresh}
-        onOpen={setOpenId}
+        onOpen={openDetail}
+        onBatchChange={setBatch}
         onSetUpStudyNote={(ids) => {
           setPreselect((p) => ({ ids, nonce: (p?.nonce ?? 0) + 1 }));
           setView('creations');

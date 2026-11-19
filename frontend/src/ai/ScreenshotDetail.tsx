@@ -9,8 +9,8 @@ import {
   type Category,
 } from '../api/ai';
 import { imageUrl, type Screenshot } from '../api/client';
-import { describeOperationOutcome, describeRequestFailure } from './messages';
-import { PrivacyNotice, useProviderMode } from './PrivacyNotice';
+import { CRYPT_GALLERY_NOTE, describeOperationOutcome, describeRequestFailure } from './messages';
+import { PrivacyNotice, useProviderStatus } from './PrivacyNotice';
 import { StatusBadge } from './StatusBadge';
 import {
   acquireRevive,
@@ -42,9 +42,14 @@ interface Props {
    * Crypt views can reflect the real state without a reload.
    */
   onAnalysisChanged?: (analysis: Analysis) => void;
+  /** Secondary lifecycle actions, owned by the parent. */
+  onArchive?: (screenshotId: number) => void | Promise<void>;
+  onRestore?: (screenshotId: number) => void | Promise<void>;
+  lifecycleBusy?: boolean;
   pollIntervalMs?: number;
   maxPolls?: number;
 }
+
 
 /**
  * Open-screenshot panel: privacy warning, explicit consent, deliberate Revive,
@@ -57,6 +62,9 @@ export function ScreenshotDetail({
   screenshot,
   onClose,
   onAnalysisChanged,
+  onArchive,
+  onRestore,
+  lifecycleBusy = false,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
   maxPolls = DEFAULT_MAX_POLLS,
 }: Props) {
@@ -82,7 +90,22 @@ export function ScreenshotDetail({
 
   const [draftCategory, setDraftCategory] = useState<Category>(CATEGORIES[0]);
   const [draftEpitaph, setDraftEpitaph] = useState('');
-  const providerMode = useProviderMode();
+  const { mode: providerMode, loading: providerLoading } = useProviderStatus();
+  const providerWord = providerLoading ? 'checking the AI provider\u2026' : 'provider status could not be confirmed';
+
+  // Escape dismisses the drawer. Ignore IME composition, handled keys and open dropdowns.
+  const closeRef = useRef(onClose);
+  useEffect(() => {
+    closeRef.current = onClose;
+  }, [onClose]);
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.isComposing || e.defaultPrevented) return;
+      closeRef.current();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
 
   const loadAnalysis = useCallback(async () => {
     const res = await getAnalysis(id);
@@ -237,13 +260,15 @@ export function ScreenshotDetail({
       ? 'I understand and agree: authorize simulated demo analysis'
       : providerMode === 'openai'
         ? 'I understand and agree: allow AI to read this screenshot'
-        : 'Provider status unavailable';
+        : providerLoading
+          ? 'Checking the AI provider\u2026'
+          : 'Provider status could not be confirmed';
   const reviveLabel =
     providerMode === 'fake'
       ? 'Revive: analyze with AI (simulated demo)'
       : providerMode === 'openai'
         ? 'Revive: analyze with AI'
-        : 'Revive: analyze with AI (unavailable: provider status unconfirmed)';
+        : `Revive: analyze with AI (unavailable: ${providerWord})`;
 
   return (
     <section className="ai-detail" role="dialog" aria-modal="false" aria-labelledby="ai-detail-h">
@@ -258,7 +283,7 @@ export function ScreenshotDetail({
 
       <img className="ai-detail__img" src={imageUrl(id)} alt={`Screenshot ${label}`} />
 
-      <PrivacyNotice scope="one" mode={providerMode} />
+      <PrivacyNotice scope="one" mode={providerMode} loading={providerLoading} />
 
       <div className="ai-block" aria-labelledby="ai-consent-h">
         <h4 id="ai-consent-h">AI consent</h4>
@@ -299,14 +324,18 @@ export function ScreenshotDetail({
           <>
             <button
               type="button"
-              className="gy-btn gy-btn--revive"
+              className={consent === 'granted' ? 'gy-btn gy-btn--revive' : 'gy-btn'}
               onClick={onRevive}
               disabled={!canRevive}
             >
               {busy || polling ? 'Reviving\u2026' : reviveLabel}
             </button>
             {providerMode === 'unknown' ? (
-              <p className="ai-hint">Provider status must be confirmed before Revive is available.</p>
+              <p className="ai-hint">
+                {providerLoading
+                  ? 'Checking the AI provider. Revive is available once this finishes.'
+                  : 'Provider status could not be confirmed, so Revive is unavailable.'}
+              </p>
             ) : consent !== 'granted' && (
               <p className="ai-hint">Grant AI consent above to enable Revive.</p>
             )}
@@ -347,6 +376,26 @@ export function ScreenshotDetail({
           {poll.phase === 'error' && <p role="alert">{poll.message}</p>}
         </div>
       </div>
+
+      {(onArchive || onRestore) && (
+        <div className="ai-block" aria-labelledby="ai-lifecycle-h">
+          <h4 id="ai-lifecycle-h">{screenshot.state === 'archived' ? 'In The Crypt' : 'Safe Burial'}</h4>
+          <p className="ai-hint" data-testid="detail-crypt-note">{CRYPT_GALLERY_NOTE}</p>
+          {screenshot.state === 'archived' ? (
+            onRestore && (
+              <button type="button" className="gy-btn" disabled={lifecycleBusy} onClick={() => void onRestore(id)}>
+                {lifecycleBusy ? 'Resurrecting...' : 'Resurrection: restore from The Crypt'}
+              </button>
+            )
+          ) : (
+            onArchive && (
+              <button type="button" className="gy-btn" disabled={lifecycleBusy} onClick={() => void onArchive(id)}>
+                {lifecycleBusy ? 'Burying...' : 'Safe Burial: move to The Crypt'}
+              </button>
+            )
+          )}
+        </div>
+      )}
 
       {analysis.phase === 'ready' && (
         <div className="ai-block" aria-labelledby="ai-result-h">

@@ -66,7 +66,7 @@ async function renderWith(list: Screenshot[]) {
   await screen.findByRole('region', { name: /ghosts/i });
 }
 
-const openCrypt = () => fireEvent.click(screen.getByRole('button', { name: /the crypt/i }));
+const openCrypt = () => fireEvent.click(screen.getByRole('button', { name: /^the crypt/i }));
 const openWorkspace = () => fireEvent.click(screen.getByRole('button', { name: /workspace/i }));
 
 beforeEach(() => {
@@ -144,7 +144,8 @@ describe('Graveyard views', () => {
     const crypt = region(/^the crypt/i);
     expect(within(crypt).getByText('Study/Knowledge')).toBeInTheDocument();
     expect(within(crypt).getByTestId('epitaph-4')).toHaveTextContent('Buried caption');
-    expect(within(crypt).getByRole('button', { name: /resurrection: restore s4\.png/i })).toBeInTheDocument();
+    expect(within(crypt).getByRole('button', { name: /^open s4\.png/i })).toBeInTheDocument();
+    expect(within(crypt).queryByRole('button', { name: /resurrection/i })).not.toBeInTheDocument();
     expect(within(crypt).queryByRole('button', { name: /safe burial/i })).not.toBeInTheDocument();
   });
 
@@ -169,7 +170,8 @@ describe('Graveyard views', () => {
     c.archiveScreenshot.mockResolvedValue({ ok: true, screenshotId: 2, status: 'successful', state: 'archived' });
     await renderWith([shot(2, { analysis: analysed({ epitaph: 'Keep me' }) })]);
     c.listScreenshots.mockResolvedValue({ ok: true, screenshots: [shot(2, { state: 'archived', analysis: analysed({ epitaph: 'Keep me' }) })] });
-    fireEvent.click(screen.getByRole('button', { name: /safe burial: archive s2\.png/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^open s2\.png/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /safe burial: move to the crypt/i }));
     await screen.findByText(/moved to the crypt/i);
     await waitFor(() => expect(cardsIn(/^revived/i)).toEqual([]));
     expect(screen.queryByTestId('epitaph-2')).not.toBeInTheDocument();
@@ -189,12 +191,13 @@ describe('Ghost interactions', () => {
     const ghosts = region(/^ghosts/i);
     expect(within(ghosts).getByText(/No Epitaph yet/i)).toBeInTheDocument();
     expect(within(ghosts).queryByRole('button', { name: /edit epitaph/i })).not.toBeInTheDocument();
-    expect(within(ghosts).getByRole('button', { name: /revive \(start ai analysis\): open s1\.png to review consent first/i })).toBeInTheDocument();
+    expect(within(ghosts).getByRole('button', { name: /^open s1\.png/i })).toBeInTheDocument();
+    expect(within(ghosts).queryByRole('button', { name: /revive|safe burial|resurrection/i })).not.toBeInTheDocument();
   });
 
   it('opening Revive shows the privacy notice and consent state but starts NO AI work', async () => {
     await renderWith([shot(1)]);
-    fireEvent.click(screen.getByRole('button', { name: /revive \(start ai analysis\)/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^open s1\.png/i }));
     const panel = await screen.findByRole('dialog');
     expect(within(panel).getByRole('note', { name: /privacy notice/i })).toBeInTheDocument();
     expect(await within(panel).findByText(/NOT authorized/i)).toBeInTheDocument();
@@ -216,7 +219,7 @@ describe('Ghost interactions', () => {
     a.getOperation.mockImplementation(() => ok({ operationId: 5, kind: 'classify', status: 'successful', errorDetail: null }));
     await renderWith([shot(1)]);
     expect(cardsIn(/^ghosts/i)).toEqual(['s1.png']);
-    fireEvent.click(screen.getByRole('button', { name: /revive \(start ai analysis\)/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^open s1\.png/i }));
     const go = await screen.findByRole('button', { name: /revive: analyze with ai/i });
     await waitFor(() => expect(go).toBeEnabled());
     a.getAnalysis.mockImplementation(() => ok(serverAnalysis(1, 'Fresh epitaph', 'ai_generate')));   // now it exists
@@ -232,7 +235,7 @@ describe('Ghost interactions', () => {
     a.classifyScreenshot.mockImplementation(() => ok({ operationId: 5, kind: 'classify', status: 'pending', errorDetail: null, warning: null }));
     a.getOperation.mockImplementation(() => ok({ operationId: 5, kind: 'classify', status: 'failed', errorDetail: 'AI analysis failed' }));
     await renderWith([shot(1)]);
-    fireEvent.click(screen.getByRole('button', { name: /revive \(start ai analysis\)/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^open s1\.png/i }));
     const go = await screen.findByRole('button', { name: /revive: analyze with ai/i });
     await waitFor(() => expect(go).toBeEnabled());
     fireEvent.click(go);

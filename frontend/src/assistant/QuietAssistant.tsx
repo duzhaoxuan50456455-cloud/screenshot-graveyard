@@ -28,6 +28,8 @@ interface Props {
   onOpen: (screenshotId: number) => void;
   onSetUpStudyNote: (ids: number[]) => void;
   onAnalysisChanged: (analysis: Analysis) => void;
+  /** Reports the locked batch while a Revive batch runs (null when idle). */
+  onBatchChange?: (batch: { ids: number[]; done: number } | null) => void;
   pollIntervalMs?: number;
   maxPolls?: number;
 }
@@ -52,6 +54,7 @@ export function QuietAssistant({
   onOpen,
   onSetUpStudyNote,
   onAnalysisChanged,
+  onBatchChange,
   pollIntervalMs = 1000,
   maxPolls = 60,
 }: Props) {
@@ -62,6 +65,12 @@ export function QuietAssistant({
   const [processing, setProcessing] = useState(false);
   const [result, setResult] = useState<{ kind: 'info' | 'error'; text: string } | null>(null);
   const { mode: provider, loading: providerLoading } = useProviderStatus();
+  // Review step: Prepare (suggestion), Review (this panel), Approve (Confirm). Nothing is sent before Confirm.
+  const [review, setReview] = useState<number[] | null>(null);
+  const batchRef = useRef(onBatchChange);
+  useEffect(() => {
+    batchRef.current = onBatchChange;
+  }, [onBatchChange]);
   const aliveRef = useRef(true);
   const busyRef = useRef(false);
 
@@ -81,6 +90,7 @@ export function QuietAssistant({
   useEffect(() => {
     setSkip(0);
     setResult(null);
+    setReview(null);
   }, [selectedKey]);
 
   const all = useMemo(
@@ -96,7 +106,7 @@ export function QuietAssistant({
         ? 'Image content of the selected screenshots may be sent to an external AI provider.'
         : providerLoading
           ? 'Checking the AI provider. Revive is unavailable until this finishes.'
-          : 'Provider status is unconfirmed, so Revive is unavailable here. Open a card to continue.';
+          : 'Provider status could not be confirmed, so Revive is unavailable here. Open a card to continue.';
   const acceptBlocked = isClassify && provider === 'unknown';
   const labelText =
     primary?.source !== 'ai'
@@ -193,12 +203,20 @@ export function QuietAssistant({
       return;
     }
     if (s.kind !== 'classify' || busyRef.current || provider === 'unknown') return;
+    setResult(null);
+    setReview(s.targetIds); // Review first: nothing is submitted yet.
+  };
+
+  const onConfirm = async (ids: number[]) => {
+    if (busyRef.current || provider === 'unknown') return;
     busyRef.current = true;
+    setReview(null);
     setProcessing(true);
     setResult(null);
     let done = 0;
     let failure: string | null = null;
-    for (const id of s.targetIds) {
+    batchRef.current?.({ ids, done });
+    for (const id of ids) {
       // Consent may have been withdrawn elsewhere: confirm it right before each image.
       const fresh = await refreshConsent([id]);
       if (!aliveRef.current) return;
@@ -211,13 +229,16 @@ export function QuietAssistant({
       }
       const r = await classifyOne(id);
       if (!aliveRef.current) return;
-      if (r === 'ok') done += 1;
-      else {
+      if (r === 'ok') {
+        done += 1;
+        batchRef.current?.({ ids, done });
+      } else {
         failure = r;
         break;
       }
     }
     busyRef.current = false;
+    batchRef.current?.(null);
     setProcessing(false);
     setResult(
       failure
@@ -285,7 +306,42 @@ export function QuietAssistant({
               </li>
             ))}
         </ul>
-        {primary && primary.kind !== 'idle' && primary.kind !== 'processing' && (
+        {review && !processing && (
+          <section className="qa__review" aria-label="Review before Revive" data-testid="qa-review">
+            <p className="qa__text">
+              <strong>Review: Revive {review.length} screenshot{review.length === 1 ? '' : 's'}</strong>
+            </p>
+            <ul className="qa__review-list">
+              {review.map((id) => {
+                const sc = selected.find((x) => x.screenshotId === id);
+                return (
+                  <li key={id}>
+                    {sc?.originalFilename || `Screenshot #${id}`}{' '}
+                    <span className="ai-hint">
+                      {consent[id] === 'granted' ? 'consent on record' : 'consent not confirmed'}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+            <p className="ai-hint">{providerHint}</p>
+            <p className="ai-hint">Consent is checked again before each screenshot. Nothing is sent until you confirm.</p>
+            <div className="qa__actions">
+              <button
+                type="button"
+                className="gy-btn gy-btn--revive"
+                disabled={provider === 'unknown'}
+                onClick={() => void onConfirm(review)}
+              >
+                Confirm and Revive {review.length}
+              </button>
+              <button type="button" className="gy-btn" onClick={() => setReview(null)}>
+                Cancel
+              </button>
+            </div>
+          </section>
+        )}
+        {!review && primary && primary.kind !== 'idle' && primary.kind !== 'processing' && (
           <div className="qa__actions">
             {primary.acceptLabel && (
               <button type="button" className="gy-btn gy-btn--revive" disabled={acceptBlocked} onClick={() => onAccept(primary)}>

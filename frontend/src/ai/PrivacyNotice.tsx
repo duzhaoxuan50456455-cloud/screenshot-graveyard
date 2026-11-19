@@ -35,9 +35,12 @@ export function useProviderMode(): ProviderMode | 'unknown' {
 export function PrivacyNotice({
   scope,
   mode,
+  loading = false,
 }: {
   scope: 'one' | 'many';
   mode: ProviderMode | 'unknown';
+  /** True while provider status is still being requested. */
+  loading?: boolean;
 }) {
   const target = scope === 'one' ? 'this screenshot' : 'every selected screenshot';
   return (
@@ -50,7 +53,9 @@ export function PrivacyNotice({
           ? 'Demo mode: nothing is sent to an external AI service.'
           : mode === 'openai'
             ? `Image content of ${target} may be sent to an external AI provider.`
-            : 'Provider status is unconfirmed.'}
+            : loading
+              ? 'Checking the AI provider\u2026'
+              : 'Provider status could not be confirmed.'}
       </p>
       <p className="ai-hint">
         Withdrawing consent stops future AI use. It cannot take back anything
@@ -69,7 +74,9 @@ export function PrivacyNotice({
             ? 'Demo mode uses a deterministic fake adapter. No image is sent to an external AI provider, and results do not interpret the screenshot content.'
             : mode === 'openai'
               ? `Authorized image content of ${target} may be sent to an external AI provider.`
-              : 'Provider mode could not be confirmed. Processing may be local or external; no assumption is made.'}
+              : loading
+                ? 'Checking the AI provider. Nothing is assumed until it answers.'
+                : 'Provider mode could not be confirmed. Processing may be local or external; no assumption is made.'}
         </li>
         <li>
           {mode === 'fake'
