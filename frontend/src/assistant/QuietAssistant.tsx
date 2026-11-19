@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { classifyScreenshot, getAnalysis, getConsent, getOperation, type Analysis } from '../api/ai';
 import type { Screenshot } from '../api/client';
 import { describeRequestFailure } from '../ai/messages';
+import { useProviderMode } from '../ai/PrivacyNotice';
 import {
   deriveSuggestions,
   pickPrimary,
@@ -38,6 +39,7 @@ export function QuietAssistant({
   const [skip, setSkip] = useState(0);
   const [processing, setProcessing] = useState(false);
   const [result, setResult] = useState<{ kind: 'info' | 'error'; text: string } | null>(null);
+  const provider = useProviderMode();
   const aliveRef = useRef(true);
   const busyRef = useRef(false);
 
@@ -80,6 +82,20 @@ export function QuietAssistant({
     [selected, consent, processing],
   );
   const primary = pickPrimary(all, dismissed, skip);
+  const isClassify = primary?.kind === 'classify';
+  const providerHint =
+    provider === 'fake'
+      ? 'Demo mode: nothing is sent to an external AI service.'
+      : provider === 'openai'
+        ? 'Image content of the selected screenshots may be sent to an external AI provider.'
+        : 'Provider status is unconfirmed, so Revive is unavailable here. Open a card to continue.';
+  const acceptBlocked = isClassify && provider === 'unknown';
+  const labelText =
+    primary?.source !== 'ai'
+      ? 'Suggested by app rules'
+      : provider === 'fake'
+        ? 'Simulated demo suggestion'
+        : 'AI suggestion';
   const hasMore = all.filter((s) => !dismissed.has(s.key)).length > skip + 1;
 
   const classifyOne = async (id: number): Promise<'ok' | string> => {
@@ -109,7 +125,7 @@ export function QuietAssistant({
       onSetUpStudyNote(s.targetIds);
       return;
     }
-    if (s.kind !== 'classify' || busyRef.current) return;
+    if (s.kind !== 'classify' || busyRef.current || provider === 'unknown') return;
     busyRef.current = true;
     setProcessing(true);
     setResult(null);
@@ -160,11 +176,16 @@ export function QuietAssistant({
           {primary ? (
             <>
               <p className="qa__label" data-testid="qa-label" data-source={primary.source}>
-                {primary.source === 'ai' ? 'AI suggestion' : 'Suggested by app rules'}
+                {labelText}
               </p>
               <p className="qa__text" data-testid="qa-text">
                 {primary.text}
               </p>
+              {isClassify && (
+                <p className="ai-hint" data-testid="qa-provider-hint">
+                  {providerHint}
+                </p>
+              )}
             </>
           ) : (
             <p className="qa__text" data-testid="qa-text">
@@ -175,7 +196,7 @@ export function QuietAssistant({
         {primary && primary.kind !== 'idle' && primary.kind !== 'processing' && (
           <div className="qa__actions">
             {primary.acceptLabel && (
-              <button type="button" className="gy-btn gy-btn--revive" onClick={() => onAccept(primary)}>
+              <button type="button" className="gy-btn gy-btn--revive" disabled={acceptBlocked} onClick={() => onAccept(primary)}>
                 {primary.acceptLabel}
               </button>
             )}

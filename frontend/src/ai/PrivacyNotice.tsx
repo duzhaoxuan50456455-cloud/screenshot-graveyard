@@ -37,6 +37,10 @@ export function PrivacyNotice({
             ? `Image content of ${target} may be sent to an external AI provider.`
             : 'Provider status is unconfirmed.'}
       </p>
+      <p className="ai-hint">
+        Withdrawing consent stops future AI use. It cannot take back anything
+        already sent.
+      </p>
       <details className="ai-privacy__more">
         <summary>Read the full privacy details</summary>
       <ul className="ai-privacy__list">

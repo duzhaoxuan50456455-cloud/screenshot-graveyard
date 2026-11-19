@@ -218,3 +218,10 @@ describe('StudyNotesPanel: generation + polling', () => {
     expect(m.getOperation.mock.calls.length).toBe(n);
   });
 });
+
+describe('StudyNotesPanel: preselect', () => {
+  it('truncates a preselection to 12 screenshots', async () => {
+    renderPanel(15, { preselect: { ids: Array.from({ length: 15 }, (_, i) => i + 1), nonce: 1 } });
+    await waitFor(() => expect(names()).toHaveLength(12));
+  });
+});

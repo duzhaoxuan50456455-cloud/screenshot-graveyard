@@ -9,6 +9,7 @@ const m = vi.hoisted(() => ({
   getOperation: vi.fn(),
   getAnalysis: vi.fn(),
   generateStudyNote: vi.fn(),
+  getProviderMode: vi.fn(),
 }));
 vi.mock('../api/ai', async (orig) => ({ ...(await orig<typeof import('../api/ai')>()), ...m }));
 
@@ -33,6 +34,7 @@ const setup = (selected: Screenshot[], extra = {}) => {
 beforeEach(() => {
   vi.clearAllMocks();
   m.getConsent.mockImplementation(() => ok(true));
+  m.getProviderMode.mockImplementation(() => ok('openai'));
 });
 
 describe('QuietAssistant', () => {
@@ -123,5 +125,70 @@ describe('QuietAssistant', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Revive 1 ghost/ }));
     await waitFor(() => expect(screen.getByTestId('qa-text')).toHaveTextContent(/working on your selection/i));
     expect(props.onAnalysisChanged).not.toHaveBeenCalled();
+  });
+
+  it('shows the provider hint and blocks Revive while the provider is unconfirmed', async () => {
+    m.getProviderMode.mockImplementation(() => Promise.resolve({ ok: false, status: 0, code: 'network', message: 'down' }));
+    setup([shot(1)]);
+    const btn = await screen.findByRole('button', { name: /Revive 1 ghost/ });
+    expect(btn).toBeDisabled();
+    expect(screen.getByTestId('qa-provider-hint')).toHaveTextContent(/unconfirmed/i);
+    fireEvent.click(btn);
+    expect(m.classifyScreenshot).not.toHaveBeenCalled();
+  });
+
+  it('names the external provider next to Revive in openai mode', async () => {
+    setup([shot(1)]);
+    await screen.findByRole('button', { name: /Revive 1 ghost/ });
+    await waitFor(() => expect(screen.getByTestId('qa-provider-hint')).toHaveTextContent(/external AI provider/));
+  });
+
+  it('labels uncertain suggestions as simulated in demo mode', async () => {
+    m.getProviderMode.mockImplementation(() => ok('fake'));
+    setup([shot(1, true)]);
+    await waitFor(() => expect(screen.getByTestId('qa-label')).toHaveTextContent('Simulated demo suggestion'));
+  });
+
+  it('reports a 403 from classify and does not poll', async () => {
+    m.classifyScreenshot.mockImplementation(() => Promise.resolve({ ok: false, status: 403, code: 'consent_required', message: 'Consent is required.' }));
+    const props = setup([shot(1)]);
+    fireEvent.click(await screen.findByRole('button', { name: /Revive 1 ghost/ }));
+    await waitFor(() => expect(screen.getByText(/0 revived/)).toBeInTheDocument());
+    expect(m.getOperation).not.toHaveBeenCalled();
+    expect(props.onAnalysisChanged).not.toHaveBeenCalled();
+  });
+
+  it('reports poll exhaustion honestly', async () => {
+    m.classifyScreenshot.mockImplementation(() => ok({ operationId: 5, kind: 'classify', status: 'pending', errorDetail: null, warning: null }));
+    m.getOperation.mockImplementation(() => ok({ operationId: 5, status: 'pending' }));
+    setup([shot(1)], { maxPolls: 2 });
+    fireEvent.click(await screen.findByRole('button', { name: /Revive 1 ghost/ }));
+    await waitFor(() => expect(screen.getByText(/Still waiting on the server/)).toBeInTheDocument());
+    expect(m.getOperation).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops a batch on the first failure', async () => {
+    m.classifyScreenshot.mockImplementation(() => Promise.resolve({ ok: false, status: 403, code: 'consent_required', message: 'Consent is required.' }));
+    setup([shot(1), shot(2)]);
+    fireEvent.click(await screen.findByRole('button', { name: /Revive 2 ghosts/ }));
+    await waitFor(() => expect(screen.getByText(/0 revived/)).toBeInTheDocument());
+    expect(m.classifyScreenshot).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not update state or continue a batch after unmount', async () => {
+    let release: (v: unknown) => void = () => {};
+    m.classifyScreenshot.mockImplementationOnce(() => new Promise((r) => { release = r; }));
+    const props = {
+      selected: [shot(1), shot(2)], refreshToken: 0, onOpen: vi.fn(), onSetUpStudyNote: vi.fn(),
+      onAnalysisChanged: vi.fn(), pollIntervalMs: 1, maxPolls: 5,
+    };
+    const { unmount } = render(<QuietAssistant {...props} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Revive 2 ghosts/ }));
+    unmount();
+    release({ ok: true, data: { operationId: 9, kind: 'classify', status: 'pending', errorDetail: null, warning: null } });
+    m.getOperation.mockImplementation(() => ok({ operationId: 9, status: 'successful' }));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(props.onAnalysisChanged).not.toHaveBeenCalled();
+    expect(m.classifyScreenshot).toHaveBeenCalledTimes(1);
   });
 });
