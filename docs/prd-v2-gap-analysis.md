@@ -150,3 +150,12 @@ is superseded. Review result for the Draft PR at 7742649 plus this follow-up:
 | Narrow screens: assistant as bottom drawer | Needs real browser check. |
 | Not-yet-covered: Creations Review/Approve flow, Activity states, Connections and Privacy page, OneNote/Calendar, undo | Not implemented, out of scope for this UX PR. |
 | PrivacyNotice shows "unconfirmed" text while loading | Minor remaining gap (assistant is fixed; the shared notice still uses one string). |
+
+## Known backend safety gap: consent revoke race
+
+Consent can still be revoked after the AI worker's last consent check and before
+the adapter call, for Classification and Study Notes (including Redo). Draft PR
+#1 does not eliminate this race. A remediation proposal and task are recorded in
+`.kiro/specs/screenshot-graveyard/consent-dispatch-boundary-proposal.md` and
+`tasks.md` task 7.1. Revocation can stop new dispatches once implemented, but
+cannot recall content already sent or stop a call in flight.

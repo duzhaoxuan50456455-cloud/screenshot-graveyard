@@ -579,6 +579,16 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** the Devpost submission is complete with links to the repo, live URL, and demo; deadlines and student-bonus details are recorded.
   - **Priority:** P0
 
+### Phase 7 — Backend safety follow-ups (additive; not part of Draft PR #1)
+
+- [ ] 7.1 Close the consent check-to-dispatch race for Classification and Study Notes
+  - Proposal only so far: `.kiro/specs/screenshot-graveyard/consent-dispatch-boundary-proposal.md`. **Not implemented in PR #1, and PR #1 does not eliminate the race:** consent can still be revoked after the worker's last check and before the adapter call (`classification_service.py` 221 to 242, `study_note_service.py` 204 to 222).
+  - Implement the recommended design from the proposal (durable dispatch ledger, consent version, revoke aborting not-yet-sent dispatches, persistence guard) as a separately reviewable backend PR, with deterministic adapter-boundary revocation tests for Classification, Study Notes, and both Redo paths. State plainly in code, UI copy, and docs that revocation cannot recall content already sent or stop a call in flight.
+  - **Dependencies:** 2.3, 2.5, 2.7, 3.3
+  - **Requirements:** 9.2, 9.4
+  - **Acceptance test / expected output:** the tests in section 6 of the proposal pass on SQLite; a revoke committed before dispatch authorization never reaches the adapter; results from calls overlapping a revoke are discarded; no database transaction is held across the adapter call.
+  - **Priority:** P0 safety follow-up (separate PR)
+
 ## Notes
 
 - Tasks tagged `[P1 — optional, non-blocking]` (4.5–4.10) are optional and never block any P0 task; they appear only in Phase 4+.
