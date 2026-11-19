@@ -1,8 +1,22 @@
+import { lazy, Suspense } from 'react';
 import './App.css';
 import Graveyard from './Graveyard';
 import HealthStatus from './HealthStatus';
+import { isDemoMode } from './uiMode';
+
+// The visual redesign runs in a frontend-only demo mode: it uses synthetic
+// fixtures and never touches the API client. Enable with `?demo=1` or by
+// building/running with VITE_UI_MODE=demo (`npm run dev:demo`).
+const DemoApp = lazy(() => import('./demo/DemoApp'));
 
 function App() {
+  if (isDemoMode()) {
+    return (
+      <Suspense fallback={null}>
+        <DemoApp />
+      </Suspense>
+    );
+  }
   return (
     <main className="app">
       <header className="app__header">
@@ -16,5 +30,4 @@ function App() {
     </main>
   );
 }
-
 export default App;

@@ -56,3 +56,20 @@ describe('App', () => {
     expect(screen.getAllByRole('status').length).toBeGreaterThan(0);
   });
 });
+
+describe('App mode selection', () => {
+  it('renders the live app (not the demo) by default', () => {
+    render(<App />);
+    expect(screen.queryByTestId('demo-app')).not.toBeInTheDocument();
+  });
+
+  it('renders the demo shell when ?demo is present', async () => {
+    window.history.pushState({}, '', '/?demo=1');
+    try {
+      render(<App />);
+      expect(await screen.findByTestId('demo-app')).toBeInTheDocument();
+    } finally {
+      window.history.pushState({}, '', '/');
+    }
+  });
+});

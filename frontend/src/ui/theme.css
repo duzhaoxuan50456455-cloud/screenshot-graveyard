@@ -1,0 +1,79 @@
+/* Screenshot Graveyard design tokens + base. Dark plum, lavender accents, restrained peach CTA. */
+:root {
+  --sg-bg: #0d0813;
+  --sg-bg-2: #150d20;
+  --sg-panel: #1a1126;
+  --sg-panel-2: #21162f;
+  --sg-card: #261a38;
+  --sg-line: #3f2d5c;
+  --sg-line-strong: #7048b8;
+  --sg-violet: #9b6bf0;
+  --sg-violet-soft: #c5a8ff;
+  --sg-lavender: #e4d8ff;
+  --sg-text: #f0e9fb;
+  --sg-muted: #a898c4;
+  --sg-peach: #ffb066;
+  --sg-peach-2: #f79a4a;
+  --sg-green: #62d394;
+  --sg-amber: #f5b73d;
+  --sg-radius-lg: 18px;
+  --sg-radius: 14px;
+  --sg-radius-sm: 10px;
+  --sg-shadow: 0 10px 30px rgba(5, 2, 12, 0.55);
+  --sg-glow: 0 0 0 1px rgba(155, 107, 240, 0.35), 0 0 24px rgba(155, 107, 240, 0.22);
+  --sg-font-ui: 'Inter Variable', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --sg-font-display: 'Cormorant Garamond', 'Iowan Old Style', Georgia, serif;
+}
+
+.sg {
+  min-height: 100vh;
+  background:
+    radial-gradient(900px 500px at 85% -5%, rgba(112, 72, 184, 0.28), transparent 60%),
+    radial-gradient(700px 500px at 0% 100%, rgba(80, 40, 130, 0.22), transparent 60%),
+    var(--sg-bg);
+  color: var(--sg-text);
+  font-family: var(--sg-font-ui);
+  font-size: 14px;
+  line-height: 1.45;
+}
+.sg *,
+.sg *::before,
+.sg *::after {
+  box-sizing: border-box;
+}
+.sg h1,
+.sg h2,
+.sg h3,
+.sg p {
+  margin: 0;
+}
+.sg button,
+.sg select {
+  font-family: inherit;
+}
+.sg :focus-visible {
+  outline: 2px solid var(--sg-violet-soft);
+  outline-offset: 2px;
+}
+.sg-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.sg-display {
+  font-family: var(--sg-font-display);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sg *,
+  .sg *::before,
+  .sg *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
