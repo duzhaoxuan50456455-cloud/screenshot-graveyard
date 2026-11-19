@@ -184,11 +184,57 @@ describe('QuietAssistant', () => {
     };
     const { unmount } = render(<QuietAssistant {...props} />);
     fireEvent.click(await screen.findByRole('button', { name: /Revive 2 ghosts/ }));
+    await waitFor(() => expect(m.classifyScreenshot).toHaveBeenCalledTimes(1));
     unmount();
     release({ ok: true, data: { operationId: 9, kind: 'classify', status: 'pending', errorDetail: null, warning: null } });
     m.getOperation.mockImplementation(() => ok({ operationId: 9, status: 'successful' }));
     await new Promise((r) => setTimeout(r, 20));
     expect(props.onAnalysisChanged).not.toHaveBeenCalled();
     expect(m.classifyScreenshot).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows a distinct loading hint (not "unconfirmed") while provider status is pending, Revive stays blocked', async () => {
+    let release: (v: unknown) => void = () => {};
+    m.getProviderMode.mockImplementation(() => new Promise((r) => { release = r; }));
+    setup([shot(1)]);
+    const btn = await screen.findByRole('button', { name: /Revive 1 ghost/ });
+    expect(btn).toBeDisabled();
+    expect(screen.getByTestId('qa-provider-hint')).toHaveTextContent(/checking the ai provider/i);
+    expect(screen.getByTestId('qa-provider-hint')).not.toHaveTextContent(/unconfirmed/i);
+    release({ ok: true, data: 'openai' });
+    await waitFor(() => expect(screen.getByTestId('qa-provider-hint')).toHaveTextContent(/external AI provider/));
+    expect(screen.getByRole('button', { name: /Revive 1 ghost/ })).toBeEnabled();
+  });
+
+  it('stops offering Revive when consent is withdrawn in another tab and the window regains focus', async () => {
+    setup([shot(1)]);
+    await screen.findByRole('button', { name: /Revive 1 ghost/ });
+    m.getConsent.mockImplementation(() => ok(false));
+    fireEvent.focus(window);
+    expect(await screen.findByRole('button', { name: 'Review consent' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Revive 1 ghost/ })).toBeNull();
+  });
+
+  it('re-reads consent before running a batch and never classifies a withdrawn image', async () => {
+    setup([shot(1)]);
+    const btn = await screen.findByRole('button', { name: /Revive 1 ghost/ });
+    m.getConsent.mockImplementation(() => ok(false));
+    fireEvent.click(btn);
+    await waitFor(() => expect(screen.getByText(/Consent is no longer on record/)).toBeInTheDocument());
+    expect(m.classifyScreenshot).not.toHaveBeenCalled();
+    expect(m.setConsent).not.toHaveBeenCalled();
+  });
+
+  it('checks consent per image so a mid-batch withdrawal stops the rest', async () => {
+    m.classifyScreenshot.mockImplementation(() => ok({ operationId: 5, kind: 'classify', status: 'pending', errorDetail: null, warning: null }));
+    m.getOperation.mockImplementation(() => ok({ operationId: 5, status: 'successful', errorDetail: null, artifactId: null }));
+    m.getAnalysis.mockImplementation(() => ok({ screenshotId: 1 }));
+    setup([shot(1), shot(2)]);
+    const btn = await screen.findByRole('button', { name: /Revive 2 ghosts/ });
+    m.getConsent.mockImplementation((id: number) => ok(id === 1));
+    fireEvent.click(btn);
+    await waitFor(() => expect(screen.getByText(/1 revived/)).toBeInTheDocument());
+    expect(m.classifyScreenshot).toHaveBeenCalledTimes(1);
+    expect(m.classifyScreenshot).toHaveBeenCalledWith(1);
   });
 });

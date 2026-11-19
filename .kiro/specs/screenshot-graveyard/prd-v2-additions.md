@@ -136,3 +136,17 @@ Wave 5 (A.5). A.7 starts only after the PRD is re-supplied and A.4 is stable.
 | Consent gate, reversible versions, Crypt, Markdown export | Implemented (earlier tasks) |
 | A.1 to A.5 | Planned |
 | A.7 intent inference and tool planning | Planned, deferred, not implemented |
+
+## Addendum: updates after reading the real PRD v2.0
+
+- A.7 stays deferred. The PRD (section 9) asks for a narrow controlled planner
+  and suggestions, not generic intent inference.
+- New acceptance rules for the Quiet Assistant: consent is re-read when the
+  window regains focus and before each image in a batch; a provider-status
+  loading state is shown separately from an unconfirmed (failed) state.
+- Open items from the PRD: one primary CTA per view (per-card Revive buttons
+  conflict), explicit "phone gallery is not changed" copy in the Crypt, a
+  floating selection Action Bar, and a bottom-drawer Assistant on narrow
+  screens (needs real-browser acceptance).
+- The "re-supply the PRD" next step is done. The comparison is in
+  `docs/prd-v2-gap-analysis.md`.

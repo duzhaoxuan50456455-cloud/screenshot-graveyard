@@ -128,3 +128,25 @@ confirmation.
 2. Implement the additive tasks in
    `.kiro/specs/screenshot-graveyard/prd-v2-additions.md` in the listed order.
 3. Keep intent inference and tool planning as a separate, later task.
+
+## Addendum: review against the real PRD v2.0 (Markdown digest)
+
+The PRD is now available, so the earlier statement "the PRD could not be read"
+is superseded. Review result for the Draft PR at 7742649 plus this follow-up:
+
+| PRD item | Status |
+| --- | --- |
+| UX-03 one suggestion, dismissible, no nagging | Met. Assistant shows one suggestion, Dismiss is session-only, "Something else" cycles alternatives. |
+| UX-02 actions only after selection, Something else | Met for the assistant (idle hint before selection). |
+| AG-02 unselected images never included | Met. Batches use only `selected` ids. |
+| Consent freshness (PRD 8) | Fixed here. Consent is re-read on window focus and immediately before each image of a Revive batch. |
+| Honest status (PRD 2, PR-01) | Fixed here. Provider loading now reads "Checking the AI provider", distinct from "unconfirmed" failure. Revive stays blocked in both. |
+| Fake AI labelling | Met in assistant label and Graveyard provider note. |
+| Privacy scope not hidden behind a collapse | Met. The provider scope sentence and the "withdrawing consent cannot take back anything sent" caveat are outside the `<details>`. Only the long list is collapsed. |
+| Glossary (Revived = active with valid analysis) | Met in Graveyard labels. |
+| UX-01 one primary CTA per view | **Gap.** Every Ghost card shows a `gy-btn--revive` button, plus Safe Burial, so a grid has many equal CTAs. Needs human design review. |
+| CR-01 Crypt must not imply phone gallery deletion | **Partial.** Copy says "archived, original kept" but no explicit sentence that the phone gallery is untouched. |
+| Floating batch Action Bar ("5 selected - Make Notes - Something else") | Gap. Suggestion lives in the sidebar only. |
+| Narrow screens: assistant as bottom drawer | Needs real browser check. |
+| Not-yet-covered: Creations Review/Approve flow, Activity states, Connections and Privacy page, OneNote/Calendar, undo | Not implemented, out of scope for this UX PR. |
+| PrivacyNotice shows "unconfirmed" text while loading | Minor remaining gap (assistant is fixed; the shared notice still uses one string). |

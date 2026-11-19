@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { classifyScreenshot, getAnalysis, getConsent, getOperation, type Analysis } from '../api/ai';
 import type { Screenshot } from '../api/client';
 import { describeRequestFailure } from '../ai/messages';
-import { useProviderMode } from '../ai/PrivacyNotice';
+import { useProviderStatus } from '../ai/PrivacyNotice';
 import {
   deriveSuggestions,
   pickPrimary,
@@ -39,7 +39,7 @@ export function QuietAssistant({
   const [skip, setSkip] = useState(0);
   const [processing, setProcessing] = useState(false);
   const [result, setResult] = useState<{ kind: 'info' | 'error'; text: string } | null>(null);
-  const provider = useProviderMode();
+  const { mode: provider, loading: providerLoading } = useProviderStatus();
   const aliveRef = useRef(true);
   const busyRef = useRef(false);
 
@@ -52,22 +52,30 @@ export function QuietAssistant({
 
   const selectedKey = selected.map((s) => s.screenshotId).join(',');
 
-  // Read-only consent lookups for the selection. Never grants consent.
-  useEffect(() => {
-    if (selectedKey === '') return;
-    let active = true;
-    const ids = selectedKey.split(',').map(Number);
-    void Promise.all(
+  // Read-only consent lookups. Never grants consent.
+  const readConsent = async (ids: number[]) => {
+    const entries = await Promise.all(
       ids.map(async (id) => {
         const res = await getConsent(id);
         return [id, res.ok ? res.data : ('unknown' as const)] as const;
       }),
-    ).then((entries) => {
-      if (!active) return;
-      setConsent((cur) => ({ ...cur, ...Object.fromEntries(entries) }));
-    });
+    );
+    if (aliveRef.current) setConsent((cur) => ({ ...cur, ...Object.fromEntries(entries) }));
+    return Object.fromEntries(entries) as Record<number, ConsentStatus>;
+  };
+
+  useEffect(() => {
+    if (selectedKey === '') return;
+    void readConsent(selectedKey.split(',').map(Number));
+    // Consent can change in another tab: re-read when this tab regains focus.
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void readConsent(selectedKey.split(',').map(Number));
+    };
+    window.addEventListener('focus', onVisible);
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
-      active = false;
+      window.removeEventListener('focus', onVisible);
+      document.removeEventListener('visibilitychange', onVisible);
     };
   }, [selectedKey, refreshToken]);
 
@@ -88,7 +96,9 @@ export function QuietAssistant({
       ? 'Demo mode: nothing is sent to an external AI service.'
       : provider === 'openai'
         ? 'Image content of the selected screenshots may be sent to an external AI provider.'
-        : 'Provider status is unconfirmed, so Revive is unavailable here. Open a card to continue.';
+        : providerLoading
+          ? 'Checking the AI provider. Revive is unavailable until this finishes.'
+          : 'Provider status is unconfirmed, so Revive is unavailable here. Open a card to continue.';
   const acceptBlocked = isClassify && provider === 'unknown';
   const labelText =
     primary?.source !== 'ai'
@@ -132,6 +142,13 @@ export function QuietAssistant({
     let done = 0;
     let failure: string | null = null;
     for (const id of s.targetIds) {
+      // Consent may have been withdrawn elsewhere: confirm it right before each image.
+      const fresh = await readConsent([id]);
+      if (!aliveRef.current) return;
+      if (fresh[id] !== true) {
+        failure = 'Consent is no longer on record for the next screenshot, so nothing more was analyzed.';
+        break;
+      }
       const r = await classifyOne(id);
       if (!aliveRef.current) return;
       if (r === 'ok') done += 1;
