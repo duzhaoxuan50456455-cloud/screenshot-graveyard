@@ -1,12 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { classifyScreenshot, getAnalysis, getConsent, getOperation, type Analysis } from '../api/ai';
+import { classifyScreenshot, getAnalysis, type Analysis } from '../api/ai';
 import type { Screenshot } from '../api/client';
-import { describeRequestFailure } from '../ai/messages';
+import { describeOperationOutcome, describeRequestFailure, STATUS_UNAVAILABLE_TEXT } from '../ai/messages';
+import { pollOperation, type PollOutcome } from '../ai/pollOperation';
+import {
+  acquireRevive,
+  markReviveActive,
+  markReviveUnresolved,
+  reconcileRevive,
+  releaseRevive,
+  REVIVE_IN_FLIGHT_TEXT,
+  REVIVE_UNRESOLVED_TEXT,
+} from '../ai/reviveCoordinator';
+import { useConsent } from '../ai/useConsent';
 import { useProviderStatus } from '../ai/PrivacyNotice';
 import {
   deriveSuggestions,
   pickPrimary,
-  type ConsentStatus,
   type Suggestion,
 } from './suggestions';
 
@@ -22,7 +32,19 @@ interface Props {
   maxPolls?: number;
 }
 
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+/** Per-operation state shown by the assistant. */
+export type OpState = 'pending' | 'completed' | 'uncertain' | 'failed' | 'status_unavailable';
+
+interface OpView {
+  screenshotId: number;
+  operationId: number;
+  state: OpState;
+  /** The bounded wait ended while the server still said pending. */
+  stalled: boolean;
+  text: string;
+}
+
+const STILL_WAITING_TEXT = 'Still waiting on the server. Check the card later.';
 
 export function QuietAssistant({
   selected,
@@ -34,7 +56,7 @@ export function QuietAssistant({
   maxPolls = 60,
 }: Props) {
   const [collapsed, setCollapsed] = useState(false);
-  const [consent, setConsent] = useState<Record<number, ConsentStatus>>({});
+  const [ops, setOps] = useState<Record<number, OpView>>({});
   const [dismissed, setDismissed] = useState<ReadonlySet<string>>(new Set()); // session only
   const [skip, setSkip] = useState(0);
   const [processing, setProcessing] = useState(false);
@@ -51,33 +73,9 @@ export function QuietAssistant({
   }, []);
 
   const selectedKey = selected.map((s) => s.screenshotId).join(',');
-
-  // Read-only consent lookups. Never grants consent.
-  const readConsent = async (ids: number[]) => {
-    const entries = await Promise.all(
-      ids.map(async (id) => {
-        const res = await getConsent(id);
-        return [id, res.ok ? res.data : ('unknown' as const)] as const;
-      }),
-    );
-    if (aliveRef.current) setConsent((cur) => ({ ...cur, ...Object.fromEntries(entries) }));
-    return Object.fromEntries(entries) as Record<number, ConsentStatus>;
-  };
-
-  useEffect(() => {
-    if (selectedKey === '') return;
-    void readConsent(selectedKey.split(',').map(Number));
-    // Consent can change in another tab: re-read when this tab regains focus.
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') void readConsent(selectedKey.split(',').map(Number));
-    };
-    window.addEventListener('focus', onVisible);
-    document.addEventListener('visibilitychange', onVisible);
-    return () => {
-      window.removeEventListener('focus', onVisible);
-      document.removeEventListener('visibilitychange', onVisible);
-    };
-  }, [selectedKey, refreshToken]);
+  const selectedIds = useMemo(() => (selectedKey === '' ? [] : selectedKey.split(',').map(Number)), [selectedKey]);
+  // Read-only consent lookups with per-screenshot request sequencing. Never grants consent.
+  const { status: consent, refresh: refreshConsent, set: setConsentStatus } = useConsent(selectedIds, refreshToken);
 
   // A changed selection starts a fresh suggestion; "something else" resets.
   useEffect(() => {
@@ -108,22 +106,81 @@ export function QuietAssistant({
         : 'AI suggestion';
   const hasMore = all.filter((s) => !dismissed.has(s.key)).length > skip + 1;
 
-  const classifyOne = async (id: number): Promise<'ok' | string> => {
-    const accepted = await classifyScreenshot(id);
-    if (!accepted.ok) return describeRequestFailure(accepted);
-    for (let i = 0; i < maxPolls; i += 1) {
-      const op = await getOperation(accepted.data.operationId);
-      if (!aliveRef.current) return 'cancelled';
-      if (op.ok && op.data.status !== 'pending') {
-        if (op.data.status !== 'successful') return 'The analysis did not finish. Nothing was changed.';
+  const showOp = (screenshotId: number, view: Omit<OpView, 'screenshotId'>) => {
+    if (aliveRef.current) setOps((cur) => ({ ...cur, [screenshotId]: { screenshotId, ...view } }));
+  };
+
+  /** Turn a poll outcome into the visible state. Returns the state plus whether the run may continue. */
+  const applyOutcome = async (id: number, operationId: number, outcome: PollOutcome): Promise<'ok' | string> => {
+    if (outcome.kind === 'cancelled') return 'cancelled';
+    if (outcome.kind === 'done') {
+      releaseRevive(id);
+      if (outcome.status === 'successful') {
         const analysis = await getAnalysis(id);
-        if (!analysis.ok) return 'The analysis finished but could not be loaded.';
+        if (!aliveRef.current) return 'cancelled';
+        if (!analysis.ok) {
+          showOp(id, { operationId, state: 'completed', stalled: false, text: 'The analysis finished but could not be loaded.' });
+          return 'The analysis finished but could not be loaded.';
+        }
         onAnalysisChanged(analysis.data);
+        showOp(id, { operationId, state: 'completed', stalled: false, text: `Screenshot #${id} revived.` });
         return 'ok';
       }
-      await sleep(pollIntervalMs);
+      const text = describeOperationOutcome(outcome.status, outcome.errorDetail);
+      showOp(id, { operationId, state: outcome.status, stalled: false, text });
+      return text;
     }
-    return 'Still waiting on the server. Check the card later.';
+    if (outcome.kind === 'not_found') {
+      releaseRevive(id);
+      const text = 'The server has no record of this operation, so nothing was saved.';
+      showOp(id, { operationId, state: 'failed', stalled: false, text });
+      return text;
+    }
+    // timeout or unavailable: keep the operation id so it can be reconciled.
+    markReviveUnresolved(id);
+    if (outcome.kind === 'unavailable') {
+      showOp(id, { operationId, state: 'status_unavailable', stalled: true, text: STATUS_UNAVAILABLE_TEXT });
+      return STATUS_UNAVAILABLE_TEXT;
+    }
+    showOp(id, { operationId, state: 'pending', stalled: true, text: STILL_WAITING_TEXT });
+    return STILL_WAITING_TEXT;
+  };
+
+  const classifyOne = async (id: number): Promise<'ok' | string> => {
+    const lock = await acquireRevive(id);
+    if (!lock.ok) return lock.reason === 'in_flight' ? REVIVE_IN_FLIGHT_TEXT : REVIVE_UNRESOLVED_TEXT;
+    const accepted = await classifyScreenshot(id);
+    if (!accepted.ok) {
+      releaseRevive(id);
+      // The server says consent is missing: drop any stale "granted".
+      if (accepted.status === 403) setConsentStatus(id, 'not_granted');
+      return describeRequestFailure(accepted);
+    }
+    const operationId = accepted.data.operationId;
+    markReviveActive(id, operationId);
+    showOp(id, { operationId, state: 'pending', stalled: false, text: `Working on screenshot #${id}\u2026` });
+    const outcome = await pollOperation(operationId, {
+      intervalMs: pollIntervalMs,
+      maxPolls,
+      isCancelled: () => !aliveRef.current,
+    });
+    if (outcome.kind === 'cancelled') markReviveUnresolved(id);
+    return applyOutcome(id, operationId, outcome);
+  };
+
+  /** Secondary action: one reconciliation check for a stalled operation. */
+  const checkAgain = async (view: OpView) => {
+    const r = await reconcileRevive(view.screenshotId);
+    if (!aliveRef.current) return;
+    if (r.kind === 'terminal') {
+      await applyOutcome(view.screenshotId, view.operationId, r.outcome);
+    } else if (r.kind === 'gone') {
+      await applyOutcome(view.screenshotId, view.operationId, { kind: 'not_found' });
+    } else if (r.kind === 'pending') {
+      showOp(view.screenshotId, { operationId: view.operationId, state: 'pending', stalled: true, text: STILL_WAITING_TEXT });
+    } else {
+      showOp(view.screenshotId, { operationId: view.operationId, state: 'status_unavailable', stalled: true, text: STATUS_UNAVAILABLE_TEXT });
+    }
   };
 
   const onAccept = async (s: Suggestion) => {
@@ -143,10 +200,13 @@ export function QuietAssistant({
     let failure: string | null = null;
     for (const id of s.targetIds) {
       // Consent may have been withdrawn elsewhere: confirm it right before each image.
-      const fresh = await readConsent([id]);
+      const fresh = await refreshConsent([id]);
       if (!aliveRef.current) return;
-      if (fresh[id] !== true) {
-        failure = 'Consent is no longer on record for the next screenshot, so nothing more was analyzed.';
+      if (fresh[id] !== 'granted') {
+        failure =
+          fresh[id] === 'lookup_failed'
+            ? 'Could not confirm consent for the next screenshot, so nothing more was analyzed.'
+            : 'Consent is no longer on record for the next screenshot, so nothing more was analyzed.';
         break;
       }
       const r = await classifyOne(id);
@@ -210,6 +270,21 @@ export function QuietAssistant({
             </p>
           )}
         </div>
+        <ul className="qa__ops" aria-label="Revive progress">
+          {selectedIds
+            .map((id) => ops[id])
+            .filter((o): o is OpView => o !== undefined)
+            .map((o) => (
+              <li key={o.screenshotId} data-testid="qa-op" data-state={o.state}>
+                <span>{o.text}</span>
+                {o.stalled && !processing && (
+                  <button type="button" className="gy-btn" onClick={() => void checkAgain(o)}>
+                    Check again
+                  </button>
+                )}
+              </li>
+            ))}
+        </ul>
         {primary && primary.kind !== 'idle' && primary.kind !== 'processing' && (
           <div className="qa__actions">
             {primary.acceptLabel && (

@@ -20,7 +20,12 @@ export type SuggestionKind =
   | 'study_note'
   | 'too_many';
 
-export type ConsentStatus = boolean | 'unknown';
+/**
+ * checking: not answered yet (or being re-read)
+ * granted / not_granted: the server answered
+ * lookup_failed: the read failed, so consent is unknown (different from revoked)
+ */
+export type ConsentStatus = 'checking' | 'granted' | 'not_granted' | 'lookup_failed';
 
 export interface AssistantInput {
   /** Selected screenshots, in the order the user picked them. */
@@ -82,17 +87,22 @@ export function deriveSuggestions(input: AssistantInput): Suggestion[] {
   const ghostIds = ghosts.map((s) => s.screenshotId);
 
   if (ghosts.length > 0) {
-    const notGranted = ghosts.filter((s) => consent[s.screenshotId] !== true);
+    const state = (s: Screenshot): ConsentStatus => consent[s.screenshotId] ?? 'checking';
+    const notGranted = ghosts.filter((s) => state(s) !== 'granted');
     if (notGranted.length > 0) {
-      const unknown = notGranted.some((s) => consent[s.screenshotId] === undefined || consent[s.screenshotId] === 'unknown');
+      const checking = notGranted.some((s) => state(s) === 'checking');
+      const failed = notGranted.some((s) => state(s) === 'lookup_failed');
+      const who = plural(notGranted.length, 'selected ghost');
       out.push({
         kind: 'consent_needed',
         key: keyOf('consent_needed', ghostIds),
         source: 'rules',
-        text: unknown
-          ? `${plural(notGranted.length, 'selected ghost')} may need your consent before analysis. Review it first, nothing is analyzed without it.`
-          : `${plural(notGranted.length, 'selected ghost')} still need${notGranted.length === 1 ? 's' : ''} your consent before analysis.`,
-        acceptLabel: 'Review consent',
+        text: checking
+          ? `Checking consent for ${who}\u2026`
+          : failed
+            ? `Could not check consent for ${who}. Review it first, nothing is analyzed without it.`
+            : `${who} still need${notGranted.length === 1 ? 's' : ''} your consent before analysis.`,
+        acceptLabel: checking ? null : 'Review consent',
         targetIds: [notGranted[0].screenshotId],
       });
     } else {

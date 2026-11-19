@@ -4,7 +4,6 @@ import {
   classifyScreenshot,
   editAnalysis,
   getAnalysis,
-  getConsent,
   setConsent,
   type Analysis,
   type Category,
@@ -14,12 +13,20 @@ import { describeOperationOutcome, describeRequestFailure } from './messages';
 import { PrivacyNotice, useProviderMode } from './PrivacyNotice';
 import { StatusBadge } from './StatusBadge';
 import {
+  acquireRevive,
+  markReviveActive,
+  markReviveUnresolved,
+  releaseRevive,
+  REVIVE_IN_FLIGHT_TEXT,
+  REVIVE_UNRESOLVED_TEXT,
+} from './reviveCoordinator';
+import { useConsent } from './useConsent';
+import {
   DEFAULT_MAX_POLLS,
   DEFAULT_POLL_INTERVAL_MS,
   useOperationPolling,
 } from './useOperationPolling';
 
-type ConsentState = 'loading' | 'granted' | 'not_granted' | 'error';
 type AnalysisState =
   | { phase: 'loading' }
   | { phase: 'none' }
@@ -56,7 +63,11 @@ export function ScreenshotDetail({
   const id = screenshot.screenshotId;
   const label = screenshot.originalFilename || `Screenshot #${id}`;
   const headingRef = useRef<HTMLHeadingElement | null>(null);
-  const [consent, setConsentState] = useState<ConsentState>('loading');
+  const { status: consentMap, set: setConsentLookup } = useConsent([id]);
+  const lookup = consentMap[id] ?? 'checking';
+  // Keep the labels used by the markup below.
+  const consent =
+    lookup === 'checking' ? 'loading' : lookup === 'lookup_failed' ? 'error' : lookup;
   const [analysis, setAnalysis] = useState<AnalysisState>({ phase: 'loading' });
   const [busy, setBusy] = useState(false); // request in flight (duplicate-click guard)
   const busyRef = useRef(false);
@@ -87,14 +98,13 @@ export function ScreenshotDetail({
     }
   }, [id]);
 
-  // Read-only on open: consent + any existing result. No AI call happens here.
+  // Read-only on open: any existing result (consent is read by useConsent). No AI call happens here.
   useEffect(() => {
     let active = true;
     headingRef.current?.focus();
     (async () => {
-      const [c, a] = await Promise.all([getConsent(id), getAnalysis(id)]);
+      const a = await getAnalysis(id);
       if (!active) return;
-      setConsentState(c.ok ? (c.data ? 'granted' : 'not_granted') : 'error');
       if (a.ok) {
         setAnalysis({ phase: 'ready', analysis: a.data });
         setDraftCategory(a.data.classification.category);
@@ -115,6 +125,22 @@ export function ScreenshotDetail({
     }
   }, [poll, loadAnalysis]);
 
+  // Release the shared Revive registry once polling is final. A timeout keeps the
+  // operation id so the next submission reconciles first.
+  useEffect(() => {
+    if (poll.phase === 'done' || poll.phase === 'error') releaseRevive(id);
+    else if (poll.phase === 'timeout') markReviveUnresolved(id);
+  }, [poll, id]);
+  // Closing the panel mid-poll leaves the operation unresolved, not forgotten.
+  const pollPhaseRef = useRef(poll.phase);
+  pollPhaseRef.current = poll.phase;
+  useEffect(
+    () => () => {
+      if (pollPhaseRef.current === 'polling') markReviveUnresolved(id);
+    },
+    [id],
+  );
+
   const guarded = async (fn: () => Promise<void>) => {
     if (busyRef.current) return; // duplicate-click prevention
     busyRef.current = true;
@@ -132,7 +158,7 @@ export function ScreenshotDetail({
       setMessage(null);
       const res = await setConsent(id, true);
       if (res.ok) {
-        setConsentState('granted');
+        setConsentLookup(id, 'granted');
         setMessage({ kind: 'info', text: 'AI consent granted for this screenshot.' });
       } else {
         setMessage({ kind: 'error', text: describeRequestFailure(res) });
@@ -144,7 +170,7 @@ export function ScreenshotDetail({
       setMessage(null);
       const res = await setConsent(id, false);
       if (res.ok) {
-        setConsentState('not_granted');
+        setConsentLookup(id, 'not_granted');
         setMessage({
           kind: 'info',
           text: 'AI consent withdrawn. Future AI use is blocked. Consent cannot recall any content that may already have been processed.',
@@ -158,12 +184,23 @@ export function ScreenshotDetail({
     guarded(async () => {
       setMessage(null);
       reset();
+      const lock = await acquireRevive(id);
+      if (!lock.ok) {
+        setMessage({
+          kind: 'error',
+          text: lock.reason === 'in_flight' ? REVIVE_IN_FLIGHT_TEXT : REVIVE_UNRESOLVED_TEXT,
+        });
+        return;
+      }
       const res = await classifyScreenshot(id);
       if (!res.ok) {
-        if (res.status === 403) setConsentState('not_granted');
+        releaseRevive(id);
+        // The server says consent is missing: clear any stale "granted".
+        if (res.status === 403) setConsentLookup(id, 'not_granted');
         setMessage({ kind: 'error', text: describeRequestFailure(res) });
         return;
       }
+      markReviveActive(id, res.data.operationId);
       start(res.data.operationId);
     });
 
