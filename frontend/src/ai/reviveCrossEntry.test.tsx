@@ -13,6 +13,7 @@ const m = vi.hoisted(() => ({
 }));
 vi.mock('../api/ai', async (orig) => ({ ...(await orig<typeof import('../api/ai')>()), ...m }));
 
+import { getReviveEntry } from './reviveCoordinator';
 import { QuietAssistant } from '../assistant/QuietAssistant';
 import { ScreenshotDetail } from './ScreenshotDetail';
 
@@ -233,5 +234,81 @@ describe('Quiet Assistant operation states', () => {
     await run();
     await waitFor(() => expect(screen.getByTestId('qa-op')).toHaveAttribute('data-state', 'failed'));
     expect(m.getOperation).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Screenshot Detail lifecycle and reporting', () => {
+  const analysisFor = (category: string, epitaph: string) => ({
+    screenshotId: 1,
+    classification: { category, confidence: 0.9, origin: 'ai', uncertain: false, versionNumber: 1 },
+    epitaph: { text: epitaph, visibleFacts: '', inferredIntent: '', uncertain: false, origin: 'ai', versionNumber: 1 },
+  });
+
+  it('closing Detail while classify is in flight keeps the operation id as unresolved, not active', async () => {
+    let resolveClassify: (v: unknown) => void = () => {};
+    m.classifyScreenshot.mockImplementation(() => new Promise((r) => { resolveClassify = r; }));
+    m.getOperation.mockImplementation(() => opResult(7, 'pending'));
+    const { unmount } = render(<ScreenshotDetail screenshot={shot(1)} onClose={() => {}} pollIntervalMs={1} maxPolls={5} />);
+    fireEvent.click(await detailRevive());
+    await waitFor(() => expect(m.classifyScreenshot).toHaveBeenCalledTimes(1));
+    unmount();
+    await act(async () => { resolveClassify({ ok: true, data: { operationId: 7, kind: 'classify', status: 'pending', errorDetail: null, warning: null } }); });
+    expect(getReviveEntry(1)).toMatchObject({ phase: 'unresolved', operationId: 7 });
+    expect(m.getOperation).not.toHaveBeenCalled();
+    // Reopening reconciles the kept operation instead of being stuck "in flight".
+    m.getOperation.mockImplementation(() => opResult(7, 'successful'));
+    m.classifyScreenshot.mockImplementation(() => accepted(8));
+    render(<ScreenshotDetail screenshot={shot(1)} onClose={() => {}} pollIntervalMs={1} maxPolls={5} />);
+    fireEvent.click(await detailRevive());
+    await waitFor(() => expect(m.classifyScreenshot).toHaveBeenCalledTimes(2));
+  });
+
+  it('Detail poll failures report status unavailable with the retained operation id', async () => {
+    m.classifyScreenshot.mockImplementation(() => accepted(9));
+    m.getOperation.mockImplementation(() => fail(0));
+    render(<ScreenshotDetail screenshot={shot(1)} onClose={() => {}} pollIntervalMs={1} maxPolls={10} />);
+    fireEvent.click(await detailRevive());
+    const note = await screen.findByTestId('detail-op-unavailable');
+    expect(note).toHaveTextContent(/temporarily unavailable/);
+    expect(note).toHaveTextContent('#9');
+    expect(screen.queryByText(/Still not finished/)).toBeNull();
+    expect(getReviveEntry(1)).toMatchObject({ phase: 'unresolved', operationId: 9 });
+  });
+
+  it('Escape closes the drawer when clean but not with an unsaved draft', async () => {
+    m.getAnalysis.mockImplementation(() => ok(analysisFor('Receipts', 'Here lies a receipt')));
+    const onClose = vi.fn();
+    render(<ScreenshotDetail screenshot={shot(1)} onClose={onClose} />);
+    const box = await screen.findByLabelText('Epitaph');
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+    fireEvent.change(box, { target: { value: 'Edited but unsaved' } });
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the last known consent while a focus re-read is in flight', async () => {
+    render(<ScreenshotDetail screenshot={shot(1)} onClose={() => {}} />);
+    await waitFor(() => expect(screen.getByTestId('consent-state')).toHaveTextContent(/is authorized/));
+    m.getConsent.mockImplementation(() => new Promise(() => {}));
+    act(() => { window.dispatchEvent(new Event('focus')); });
+    expect(screen.getByTestId('consent-state')).toHaveTextContent(/is authorized/);
+    expect(screen.queryByText(/Checking consent/)).toBeNull();
+  });
+
+  it('Assistant unmount during a batch clears the batch lock', async () => {
+    m.classifyScreenshot.mockImplementation(() => new Promise(() => {}));
+    const onBatchChange = vi.fn();
+    const { unmount } = render(
+      <QuietAssistant
+        selected={[shot(1)]} refreshToken={0} onOpen={vi.fn()} onSetUpStudyNote={vi.fn()}
+        onAnalysisChanged={vi.fn()} onBatchChange={onBatchChange} pollIntervalMs={1} maxPolls={5}
+      />,
+    );
+    fireEvent.click(await assistantRevive());
+    await waitFor(() => expect(m.classifyScreenshot).toHaveBeenCalledTimes(1));
+    expect(onBatchChange).not.toHaveBeenCalledWith(null);
+    unmount();
+    expect(onBatchChange).toHaveBeenLastCalledWith(null);
   });
 });

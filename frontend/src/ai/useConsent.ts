@@ -33,7 +33,12 @@ export function useConsent(ids: number[], refreshToken: number = 0) {
       seqRef.current[id] = mine[id];
     }
     if (aliveRef.current) {
-      setStatus((cur) => ({ ...cur, ...Object.fromEntries(target.map((id) => [id, 'checking' as const])) }));
+      // Show "checking" only on first load; a re-read keeps the last known answer until the new one arrives.
+      setStatus((cur) => {
+        const firstLoad = target.filter((id) => cur[id] === undefined);
+        if (firstLoad.length === 0) return cur;
+        return { ...cur, ...Object.fromEntries(firstLoad.map((id) => [id, 'checking' as const])) };
+      });
     }
     const entries = await Promise.all(
       target.map(async (id) => {

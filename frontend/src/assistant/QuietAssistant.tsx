@@ -78,6 +78,8 @@ export function QuietAssistant({
     aliveRef.current = true;
     return () => {
       aliveRef.current = false;
+      // Never leave the Graveyard selection locked by a batch that can no longer finish.
+      if (busyRef.current) batchRef.current?.(null);
     };
   }, []);
 

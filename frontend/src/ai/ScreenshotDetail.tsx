@@ -9,7 +9,13 @@ import {
   type Category,
 } from '../api/ai';
 import { imageUrl, type Screenshot } from '../api/client';
-import { CRYPT_GALLERY_NOTE, describeOperationOutcome, describeRequestFailure } from './messages';
+import {
+  CRYPT_GALLERY_NOTE,
+  describeOperationOutcome,
+  describeRequestFailure,
+  STATUS_UNAVAILABLE_TEXT,
+} from './messages';
+import { pollOperation } from './pollOperation';
 import { PrivacyNotice, useProviderStatus } from './PrivacyNotice';
 import { StatusBadge } from './StatusBadge';
 import {
@@ -21,11 +27,10 @@ import {
   REVIVE_UNRESOLVED_TEXT,
 } from './reviveCoordinator';
 import { useConsent } from './useConsent';
-import {
-  DEFAULT_MAX_POLLS,
-  DEFAULT_POLL_INTERVAL_MS,
-  useOperationPolling,
-} from './useOperationPolling';
+import { DEFAULT_MAX_POLLS, DEFAULT_POLL_INTERVAL_MS, type PollState } from './useOperationPolling';
+
+/** Detail's poll state: the shared phases plus "status unavailable" (poll requests failed). */
+type DetailPoll = PollState | { phase: 'unavailable'; operationId: number };
 
 type AnalysisState =
   | { phase: 'loading' }
@@ -80,7 +85,15 @@ export function ScreenshotDetail({
   const [busy, setBusy] = useState(false); // request in flight (duplicate-click guard)
   const busyRef = useRef(false);
   const [message, setMessage] = useState<{ kind: 'info' | 'error'; text: string } | null>(null);
-  const { state: poll, start, reset } = useOperationPolling(pollIntervalMs, maxPolls);
+  const [poll, setPoll] = useState<DetailPoll>({ phase: 'idle' });
+  const aliveRef = useRef(true);
+  const runRef = useRef(0); // identifies the newest poll run; older runs stop quietly
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+    };
+  }, []);
   // Keep the latest callback in a ref so an unstable parent function can never
   // re-trigger the effects below (which would refetch in a loop).
   const changedRef = useRef(onAnalysisChanged);
@@ -101,11 +114,15 @@ export function ScreenshotDetail({
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
       if (e.key !== 'Escape' || e.isComposing || e.defaultPrevented) return;
+      // Do not discard an unsaved category/Epitaph draft or interrupt a request in flight.
+      if (guardEscapeRef.current) return;
       closeRef.current();
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, []);
+
+  const guardEscapeRef = useRef(false);
 
   const loadAnalysis = useCallback(async () => {
     const res = await getAnalysis(id);
@@ -152,7 +169,7 @@ export function ScreenshotDetail({
   // operation id so the next submission reconciles first.
   useEffect(() => {
     if (poll.phase === 'done' || poll.phase === 'error') releaseRevive(id);
-    else if (poll.phase === 'timeout') markReviveUnresolved(id);
+    else if (poll.phase === 'timeout' || poll.phase === 'unavailable') markReviveUnresolved(id);
   }, [poll, id]);
   // Closing the panel mid-poll leaves the operation unresolved, not forgotten.
   const pollPhaseRef = useRef(poll.phase);
@@ -163,6 +180,30 @@ export function ScreenshotDetail({
     },
     [id],
   );
+
+  /** Bounded poll that reports unreachable status as `unavailable`, never as pending or timeout. */
+  const runPoll = async (operationId: number) => {
+    const run = (runRef.current += 1);
+    setPoll({ phase: 'polling', operationId, attempts: 0 });
+    const outcome = await pollOperation(operationId, {
+      intervalMs: pollIntervalMs,
+      maxPolls,
+      isCancelled: () => !aliveRef.current || runRef.current !== run,
+    });
+    if (outcome.kind === 'cancelled') {
+      if (!aliveRef.current) markReviveUnresolved(id); // closed mid-poll: keep the id, do not forget it
+      return;
+    }
+    if (outcome.kind === 'done') {
+      setPoll({ phase: 'done', operationId, status: outcome.status, errorDetail: outcome.errorDetail, artifactId: outcome.artifactId });
+    } else if (outcome.kind === 'not_found') {
+      setPoll({ phase: 'error', operationId, message: 'Operation not found' });
+    } else if (outcome.kind === 'unavailable') {
+      setPoll({ phase: 'unavailable', operationId });
+    } else {
+      setPoll({ phase: 'timeout', operationId });
+    }
+  };
 
   const guarded = async (fn: () => Promise<void>) => {
     if (busyRef.current) return; // duplicate-click prevention
@@ -206,7 +247,8 @@ export function ScreenshotDetail({
   const onRevive = () =>
     guarded(async () => {
       setMessage(null);
-      reset();
+      runRef.current += 1; // abandon any earlier poll run
+      setPoll({ phase: 'idle' });
       const lock = await acquireRevive(id);
       if (!lock.ok) {
         setMessage({
@@ -224,7 +266,12 @@ export function ScreenshotDetail({
         return;
       }
       markReviveActive(id, res.data.operationId);
-      start(res.data.operationId);
+      if (!aliveRef.current) {
+        // The panel was closed while classify was in flight: nobody will poll, keep the id for reconciliation.
+        markReviveUnresolved(id);
+        return;
+      }
+      void runPoll(res.data.operationId);
     });
 
   const onSaveEdit = () =>
@@ -249,6 +296,11 @@ export function ScreenshotDetail({
     });
 
   const polling = poll.phase === 'polling';
+  const draftDirty =
+    analysis.phase === 'ready' &&
+    (draftCategory !== analysis.analysis.classification.category ||
+      draftEpitaph.trim() !== analysis.analysis.epitaph.text);
+  guardEscapeRef.current = draftDirty || busy;
   const canRevive =
     providerMode !== 'unknown' &&
     consent === 'granted' &&
@@ -371,6 +423,11 @@ export function ScreenshotDetail({
             <p role="alert">
               Still not finished after waiting. Stopped checking so we do not poll
               forever; reopen this screenshot later to see whether it completed.
+            </p>
+          )}
+          {poll.phase === 'unavailable' && (
+            <p role="alert" data-testid="detail-op-unavailable">
+              {STATUS_UNAVAILABLE_TEXT} (Operation #{poll.operationId}.)
             </p>
           )}
           {poll.phase === 'error' && <p role="alert">{poll.message}</p>}
