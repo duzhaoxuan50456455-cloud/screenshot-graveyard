@@ -579,7 +579,7 @@ The properties are grouped into these reusable modules:
   - **Acceptance test / expected output:** the Devpost submission is complete with links to the repo, live URL, and demo; deadlines and student-bonus details are recorded.
   - **Priority:** P0
 
-### Phase 7 — Backend safety follow-ups (additive; not part of Draft PR #1)
+### Phase 7: Backend safety follow-ups (additive; not part of Draft PR #1)
 
 - [ ] 7.1 Close the consent check-to-dispatch race for Classification and Study Notes
   - Proposal only so far: `.kiro/specs/screenshot-graveyard/consent-dispatch-boundary-proposal.md`. **Not implemented in PR #1, and PR #1 does not eliminate the race:** consent can still be revoked after the worker's last check and before the adapter call (`classification_service.py` 221 to 242, `study_note_service.py` 204 to 222).
