@@ -143,7 +143,7 @@ describe('selection, review and approval', () => {
     await renderWith([shot(1), shot(2)]);
     select(/select s1\.png/i);
     select(/select s2\.png/i);
-    fireEvent.click(await screen.findByRole('button', { name: /Revive 2 ghosts/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /Review 2 ghosts to Revive/ }));
     const review = await screen.findByTestId('qa-review');
     expect(within(review).getByText('s1.png', { exact: false })).toBeInTheDocument();
     expect(within(review).getByText('s2.png', { exact: false })).toBeInTheDocument();
@@ -164,7 +164,7 @@ describe('selection, review and approval', () => {
     await renderWith([shot(1), shot(2)]);
     select(/select s1\.png/i);
     select(/select s2\.png/i);
-    fireEvent.click(await screen.findByRole('button', { name: /Revive 2 ghosts/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /Review 2 ghosts to Revive/ }));
     fireEvent.click(await screen.findByRole('button', { name: /Confirm and Revive 2/ }));
     const status = await screen.findByTestId('batch-status');
     expect(status).toHaveTextContent(/Processing 1 of 2/);

@@ -40,7 +40,7 @@ const renderBoth = (id: number, extra: { maxPolls?: number } = {}) =>
 
 // Prepare then Review: returns the Confirm button; nothing is submitted until it is clicked.
 const assistantRevive = async () => {
-  fireEvent.click(await screen.findByRole('button', { name: /Revive 1 ghost/ }));
+  fireEvent.click(await screen.findByRole('button', { name: /Review 1 ghost to Revive/ }));
   return screen.findByRole('button', { name: /Confirm and Revive/ });
 };
 const detailRevive = () => screen.findByRole('button', { name: /revive: analyze with ai/i });
@@ -146,7 +146,7 @@ describe('consent sequencing', () => {
     fireEvent.click(await assistantRevive());
     await waitFor(() => expect(screen.getByText(/AI consent is required first/)).toBeInTheDocument());
     await waitFor(() => expect(screen.getByTestId('qa-text')).toHaveTextContent(/still needs your consent/));
-    expect(screen.queryByRole('button', { name: /Revive 1 ghost/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Review 1 ghost to Revive/ })).toBeNull();
   });
 
   it('words a failed lookup differently from revoked consent', async () => {

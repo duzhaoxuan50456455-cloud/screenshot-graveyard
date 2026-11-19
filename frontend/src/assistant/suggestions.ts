@@ -111,7 +111,7 @@ export function deriveSuggestions(input: AssistantInput): Suggestion[] {
         key: keyOf('classify', ghostIds),
         source: 'rules',
         text: `Consent is on record for ${plural(ghosts.length, 'selected ghost')}. Revive ${ghosts.length === 1 ? 'it' : 'them'} to get a category and Epitaph?`,
-        acceptLabel: `Revive ${plural(ghosts.length, 'ghost')}`,
+        acceptLabel: `Review ${plural(ghosts.length, 'ghost')} to Revive`,
         targetIds: ghostIds,
       });
     }

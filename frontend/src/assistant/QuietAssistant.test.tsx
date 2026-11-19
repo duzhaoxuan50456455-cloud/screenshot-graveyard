@@ -52,7 +52,7 @@ describe('QuietAssistant', () => {
 
   it('shows exactly one primary suggestion, labelled as app rules', async () => {
     setup([shot(1), shot(2)]);
-    expect(await screen.findByRole('button', { name: /Revive 2 ghosts/ })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /Review 2 ghosts to Revive/ })).toBeInTheDocument();
     expect(screen.getAllByTestId('qa-text')).toHaveLength(1);
     expect(screen.getByTestId('qa-label')).toHaveTextContent('Suggested by app rules');
     expect(screen.getByTestId('qa-label')).toHaveAttribute('data-source', 'rules');
@@ -65,7 +65,7 @@ describe('QuietAssistant', () => {
     const analysis = { screenshotId: 1 };
     m.getAnalysis.mockImplementation(() => ok(analysis));
     const props = setup([shot(1)]);
-    await reviveAndConfirm(/Revive 1 ghost/);
+    await reviveAndConfirm(/Review 1 ghost to Revive/);
     await waitFor(() => expect(props.onAnalysisChanged).toHaveBeenCalledWith(analysis));
     expect(m.classifyScreenshot).toHaveBeenCalledWith(1);
     expect(m.setConsent).not.toHaveBeenCalled();
@@ -76,7 +76,7 @@ describe('QuietAssistant', () => {
     m.classifyScreenshot.mockImplementation(() => ok({ operationId: 5, kind: 'classify', status: 'pending', errorDetail: null, warning: null }));
     m.getOperation.mockImplementation(() => ok({ operationId: 5, status: 'failed', errorDetail: 'x', artifactId: null }));
     const props = setup([shot(1)]);
-    await reviveAndConfirm(/Revive 1 ghost/);
+    await reviveAndConfirm(/Review 1 ghost to Revive/);
     await waitFor(() => expect(screen.getByText(/0 revived/)).toBeInTheDocument());
     expect(props.onAnalysisChanged).not.toHaveBeenCalled();
   });
@@ -100,12 +100,12 @@ describe('QuietAssistant', () => {
 
   it('Something else advances, and Dismiss removes it for the session', async () => {
     setup([shot(1)]);
-    await screen.findByRole('button', { name: /Revive 1 ghost/ });
+    await screen.findByRole('button', { name: /Review 1 ghost to Revive/ });
     fireEvent.click(screen.getByRole('button', { name: 'Something else' }));
     expect(screen.getByRole('button', { name: 'Set up Study Note' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Something else' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
-    expect(screen.getByRole('button', { name: /Revive 1 ghost/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Review 1 ghost to Revive/ })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
     expect(screen.getByTestId('qa-text')).toHaveTextContent(/no more suggestions/i);
   });
@@ -128,7 +128,7 @@ describe('QuietAssistant', () => {
   it('reacts to selection changes and shows processing state', async () => {
     m.classifyScreenshot.mockImplementation(() => new Promise(() => {}));
     const props = setup([shot(1)]);
-    await reviveAndConfirm(/Revive 1 ghost/);
+    await reviveAndConfirm(/Review 1 ghost to Revive/);
     await waitFor(() => expect(screen.getByTestId('qa-text')).toHaveTextContent(/working on your selection/i));
     expect(props.onAnalysisChanged).not.toHaveBeenCalled();
   });
@@ -136,7 +136,7 @@ describe('QuietAssistant', () => {
   it('shows the provider hint and blocks Revive while the provider is unconfirmed', async () => {
     m.getProviderMode.mockImplementation(() => Promise.resolve({ ok: false, status: 0, code: 'network', message: 'down' }));
     setup([shot(1)]);
-    const btn = await screen.findByRole('button', { name: /Revive 1 ghost/ });
+    const btn = await screen.findByRole('button', { name: /Review 1 ghost to Revive/ });
     expect(btn).toBeDisabled();
     expect(screen.getByTestId('qa-provider-hint')).toHaveTextContent(/could not be confirmed/i);
     fireEvent.click(btn);
@@ -145,7 +145,7 @@ describe('QuietAssistant', () => {
 
   it('names the external provider next to Revive in openai mode', async () => {
     setup([shot(1)]);
-    await screen.findByRole('button', { name: /Revive 1 ghost/ });
+    await screen.findByRole('button', { name: /Review 1 ghost to Revive/ });
     await waitFor(() => expect(screen.getByTestId('qa-provider-hint')).toHaveTextContent(/external AI provider/));
   });
 
@@ -158,7 +158,7 @@ describe('QuietAssistant', () => {
   it('reports a 403 from classify and does not poll', async () => {
     m.classifyScreenshot.mockImplementation(() => Promise.resolve({ ok: false, status: 403, code: 'consent_required', message: 'Consent is required.' }));
     const props = setup([shot(1)]);
-    await reviveAndConfirm(/Revive 1 ghost/);
+    await reviveAndConfirm(/Review 1 ghost to Revive/);
     await waitFor(() => expect(screen.getByText(/0 revived/)).toBeInTheDocument());
     expect(m.getOperation).not.toHaveBeenCalled();
     expect(props.onAnalysisChanged).not.toHaveBeenCalled();
@@ -168,7 +168,7 @@ describe('QuietAssistant', () => {
     m.classifyScreenshot.mockImplementation(() => ok({ operationId: 5, kind: 'classify', status: 'pending', errorDetail: null, warning: null }));
     m.getOperation.mockImplementation(() => ok({ operationId: 5, status: 'pending' }));
     setup([shot(1)], { maxPolls: 2 });
-    await reviveAndConfirm(/Revive 1 ghost/);
+    await reviveAndConfirm(/Review 1 ghost to Revive/);
     await waitFor(() => expect(screen.getByText(/Still waiting on the server/)).toBeInTheDocument());
     expect(m.getOperation).toHaveBeenCalledTimes(2);
   });
@@ -176,7 +176,7 @@ describe('QuietAssistant', () => {
   it('stops a batch on the first failure', async () => {
     m.classifyScreenshot.mockImplementation(() => Promise.resolve({ ok: false, status: 403, code: 'consent_required', message: 'Consent is required.' }));
     setup([shot(1), shot(2)]);
-    await reviveAndConfirm(/Revive 2 ghosts/);
+    await reviveAndConfirm(/Review 2 ghosts to Revive/);
     await waitFor(() => expect(screen.getByText(/0 revived/)).toBeInTheDocument());
     expect(m.classifyScreenshot).toHaveBeenCalledTimes(1);
   });
@@ -189,7 +189,7 @@ describe('QuietAssistant', () => {
       onAnalysisChanged: vi.fn(), pollIntervalMs: 1, maxPolls: 5,
     };
     const { unmount } = render(<QuietAssistant {...props} />);
-    await reviveAndConfirm(/Revive 2 ghosts/);
+    await reviveAndConfirm(/Review 2 ghosts to Revive/);
     await waitFor(() => expect(m.classifyScreenshot).toHaveBeenCalledTimes(1));
     unmount();
     release({ ok: true, data: { operationId: 9, kind: 'classify', status: 'pending', errorDetail: null, warning: null } });
@@ -203,27 +203,27 @@ describe('QuietAssistant', () => {
     let release: (v: unknown) => void = () => {};
     m.getProviderMode.mockImplementation(() => new Promise((r) => { release = r; }));
     setup([shot(1)]);
-    const btn = await screen.findByRole('button', { name: /Revive 1 ghost/ });
+    const btn = await screen.findByRole('button', { name: /Review 1 ghost to Revive/ });
     expect(btn).toBeDisabled();
     expect(screen.getByTestId('qa-provider-hint')).toHaveTextContent(/checking the ai provider/i);
     expect(screen.getByTestId('qa-provider-hint')).not.toHaveTextContent(/unconfirmed/i);
     release({ ok: true, data: 'openai' });
     await waitFor(() => expect(screen.getByTestId('qa-provider-hint')).toHaveTextContent(/external AI provider/));
-    expect(screen.getByRole('button', { name: /Revive 1 ghost/ })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /Review 1 ghost to Revive/ })).toBeEnabled();
   });
 
   it('stops offering Revive when consent is withdrawn in another tab and the window regains focus', async () => {
     setup([shot(1)]);
-    await screen.findByRole('button', { name: /Revive 1 ghost/ });
+    await screen.findByRole('button', { name: /Review 1 ghost to Revive/ });
     m.getConsent.mockImplementation(() => ok(false));
     fireEvent.focus(window);
     expect(await screen.findByRole('button', { name: 'Review consent' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Revive 1 ghost/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Review 1 ghost to Revive/ })).toBeNull();
   });
 
   it('re-reads consent before running a batch and never classifies a withdrawn image', async () => {
     setup([shot(1)]);
-    const btn = await screen.findByRole('button', { name: /Revive 1 ghost/ });
+    const btn = await screen.findByRole('button', { name: /Review 1 ghost to Revive/ });
     m.getConsent.mockImplementation(() => ok(false));
     fireEvent.click(btn);
     fireEvent.click(await screen.findByRole('button', { name: /Confirm and Revive/ }));
@@ -237,7 +237,7 @@ describe('QuietAssistant', () => {
     m.getOperation.mockImplementation(() => ok({ operationId: 5, status: 'successful', errorDetail: null, artifactId: null }));
     m.getAnalysis.mockImplementation(() => ok({ screenshotId: 1 }));
     setup([shot(1), shot(2)]);
-    const btn = await screen.findByRole('button', { name: /Revive 2 ghosts/ });
+    const btn = await screen.findByRole('button', { name: /Review 2 ghosts to Revive/ });
     m.getConsent.mockImplementation((id: number) => ok(id === 1));
     fireEvent.click(btn);
     fireEvent.click(await screen.findByRole('button', { name: /Confirm and Revive/ }));
