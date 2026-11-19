@@ -6,23 +6,41 @@ import { getProviderMode, type ProviderMode } from '../api/ai';
  * Distinguishes private storage from external AI processing and does not imply
  * that withdrawing consent recalls anything already sent.
  */
-// This hook intentionally shares the provider-status request with both AI UI
-// components; it is not a React component itself.
+// These hooks intentionally share the provider-status request with the AI UI
+// components; they are not React components themselves.
+// eslint-disable-next-line react-refresh/only-export-components
+export function useProviderStatus(): { mode: ProviderMode | 'unknown'; loading: boolean } {
+  const [state, setState] = useState<{ mode: ProviderMode | 'unknown'; loading: boolean }>({
+    mode: 'unknown',
+    loading: true,
+  });
+  useEffect(() => {
+    let active = true;
+    void getProviderMode().then((r) => {
+      if (active) setState({ mode: r.ok ? r.data : 'unknown', loading: false });
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+  return state;
+}
+
+// While loading, the mode stays 'unknown' so every gate remains closed.
 // eslint-disable-next-line react-refresh/only-export-components
 export function useProviderMode(): ProviderMode | 'unknown' {
-  const [mode, setMode] = useState<ProviderMode | 'unknown'>('unknown');
-  useEffect(() => {
-    void getProviderMode().then((r) => setMode(r.ok ? r.data : 'unknown'));
-  }, []);
-  return mode;
+  return useProviderStatus().mode;
 }
 
 export function PrivacyNotice({
   scope,
   mode,
+  loading = false,
 }: {
   scope: 'one' | 'many';
   mode: ProviderMode | 'unknown';
+  /** True while provider status is still being requested. */
+  loading?: boolean;
 }) {
   const target = scope === 'one' ? 'this screenshot' : 'every selected screenshot';
   return (
@@ -30,6 +48,21 @@ export function PrivacyNotice({
       <p className="ai-privacy__title">
         <strong>Before you Revive: provider and privacy</strong>
       </p>
+      <p className="ai-hint">
+        {mode === 'fake'
+          ? 'Demo mode: nothing is sent to an external AI service.'
+          : mode === 'openai'
+            ? `Image content of ${target} may be sent to an external AI provider.`
+            : loading
+              ? 'Checking the AI provider\u2026'
+              : 'Provider status could not be confirmed.'}
+      </p>
+      <p className="ai-hint">
+        Withdrawing consent stops future AI use. It cannot take back anything
+        already sent.
+      </p>
+      <details className="ai-privacy__more">
+        <summary>Read the full privacy details</summary>
       <ul className="ai-privacy__list">
         <li>
           Your {scope === 'one' ? 'screenshot is' : 'screenshots are'} stored
@@ -41,7 +74,9 @@ export function PrivacyNotice({
             ? 'Demo mode uses a deterministic fake adapter. No image is sent to an external AI provider, and results do not interpret the screenshot content.'
             : mode === 'openai'
               ? `Authorized image content of ${target} may be sent to an external AI provider.`
-              : 'Provider mode could not be confirmed. Processing may be local or external; no assumption is made.'}
+              : loading
+                ? 'Checking the AI provider. Nothing is assumed until it answers.'
+                : 'Provider mode could not be confirmed. Processing may be local or external; no assumption is made.'}
         </li>
         <li>
           {mode === 'fake'
@@ -59,6 +94,7 @@ export function PrivacyNotice({
           why you saved something, not a fact.
         </li>
       </ul>
+      </details>
     </div>
   );
 }

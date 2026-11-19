@@ -52,11 +52,18 @@ function shot(partial: Partial<Screenshot> & { screenshotId: number }): Screensh
   };
 }
 
+const openFirst = async (name: RegExp) => {
+  fireEvent.click(await screen.findByRole('button', { name: /^open file-/i }));
+  return screen.findByRole('button', { name });
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   getWorkspace.mockResolvedValue({ ok: true, active: true });
   listScreenshots.mockResolvedValue({ ok: true, screenshots: [] });
 });
+
+const openCrypt = () => fireEvent.click(screen.getByRole('button', { name: /^the crypt/i }));
 
 describe('Graveyard', () => {
   it('shows a loading state while the workspace starts', () => {
@@ -74,6 +81,7 @@ describe('Graveyard', () => {
   it('renders empty Ghost and Crypt sections when there are no screenshots', async () => {
     render(<Graveyard />);
     expect(await screen.findByText(/no ghosts yet/i)).toBeInTheDocument();
+    openCrypt();
     expect(screen.getByText(/the crypt is empty/i)).toBeInTheDocument();
   });
 
@@ -86,13 +94,19 @@ describe('Graveyard', () => {
       ],
     });
     render(<Graveyard />);
-    // Each active screenshot gets a Safe Burial button; archived gets Resurrection.
-    expect(
-      await screen.findByRole('button', { name: /safe burial: archive file-1/i }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: /resurrection: restore file-2/i }),
-    ).toBeInTheDocument();
+    // Cards carry no lifecycle buttons; Safe Burial and Resurrection live in the detail drawer.
+    await screen.findByRole('button', { name: /^open file-1/i });
+    expect(screen.queryByRole('button', { name: /safe burial|resurrection|revive/i })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /^open file-1/i }));
+    expect(await screen.findByRole('button', { name: /safe burial: move to the crypt/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^close$/i }));
+    openCrypt();
+    expect(screen.queryByRole('button', { name: /safe burial|resurrection/i })).toBeNull();
+    expect(screen.getByTestId('crypt-gallery-note')).toHaveTextContent(
+      /does not remove the photo from your phone gallery/i,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /^open file-2/i }));
+    expect(await screen.findByRole('button', { name: /resurrection: restore from the crypt/i })).toBeInTheDocument();
   });
 
   it('shows a non-intrusive duplicate indicator', async () => {
@@ -128,7 +142,7 @@ describe('Graveyard', () => {
       state: 'archived',
     });
     render(<Graveyard />);
-    const btn = await screen.findByRole('button', { name: /safe burial/i });
+    const btn = await openFirst(/safe burial/i);
     fireEvent.click(btn);
     await waitFor(() => expect(archiveScreenshot).toHaveBeenCalledWith(5));
     expect(await screen.findByText(/moved to the crypt/i)).toBeInTheDocument();
@@ -145,10 +159,11 @@ describe('Graveyard', () => {
       state: 'archived',
     });
     render(<Graveyard />);
-    fireEvent.click(await screen.findByRole('button', { name: /safe burial/i }));
-    expect(
-      await screen.findByRole('button', { name: /resurrection: restore file-55/i }),
-    ).toBeInTheDocument();
+    fireEvent.click(await openFirst(/safe burial/i));
+    await screen.findByText(/moved to the crypt/i);
+    openCrypt();
+    expect(await screen.findByRole('button', { name: /^open file-55/i })).toBeInTheDocument();
+    expect(screen.getByTestId('crypt-gallery-note')).toBeInTheDocument();
   });
 
   it('does not claim archive success for a failed lifecycle response', async () => {
@@ -160,7 +175,7 @@ describe('Graveyard', () => {
       state: 'active',
     });
     render(<Graveyard />);
-    fireEvent.click(await screen.findByRole('button', { name: /safe burial/i }));
+    fireEvent.click(await openFirst(/safe burial/i));
     expect(await screen.findByText(/safe burial did not complete/i)).toBeInTheDocument();
     expect(screen.queryByText(/moved to the crypt/i)).not.toBeInTheDocument();
   });
@@ -177,7 +192,9 @@ describe('Graveyard', () => {
       state: 'archived',
     });
     render(<Graveyard />);
-    const btn = await screen.findByRole('button', { name: /resurrection/i });
+    await screen.findByRole('button', { name: /the crypt/i });
+    openCrypt();
+    const btn = await openFirst(/resurrection/i);
     fireEvent.click(btn);
     expect(await screen.findByText(/integrity check/i)).toBeInTheDocument();
   });
@@ -209,5 +226,21 @@ describe('Graveyard', () => {
     render(<Graveyard />);
     expect(await screen.findByText(/could not load your screenshots/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
+  });
+
+  it('Quiet Assistant reacts to card selection and hands the selection to Study Notes', async () => {
+    listScreenshots.mockResolvedValue({
+      ok: true,
+      screenshots: [shot({ screenshotId: 31 }), shot({ screenshotId: 32 })],
+    });
+    render(<Graveyard />);
+    expect(await screen.findByTestId('qa-text')).toHaveTextContent(/select screenshots/i);
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select file-32.png' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select file-31.png' }));
+    expect(await screen.findByRole('button', { name: 'Review consent' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Something else' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Set up Study Note' }));
+    expect(screen.getByRole('button', { name: 'Creations' })).toHaveAttribute('aria-current', 'page');
+    expect(await screen.findByTestId('selection-count')).toHaveTextContent('2 screenshots selected');
   });
 });

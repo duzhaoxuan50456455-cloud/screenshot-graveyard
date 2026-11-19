@@ -8,7 +8,7 @@ import {
 } from '../api/ai';
 import { imageUrl, type Screenshot } from '../api/client';
 import { describeOperationOutcome, describeRequestFailure } from './messages';
-import { PrivacyNotice, useProviderMode } from './PrivacyNotice';
+import { PrivacyNotice, useProviderStatus } from './PrivacyNotice';
 import { StatusBadge } from './StatusBadge';
 import { StudyNoteView } from './StudyNoteView';
 import {
@@ -27,6 +27,8 @@ interface Props {
   screenshots: Screenshot[];
   pollIntervalMs?: number;
   maxPolls?: number;
+  /** Hand-off from the Quiet Assistant: replaces the selection when `nonce` changes. */
+  preselect?: { ids: number[]; nonce: number };
 }
 
 type ConsentMap = Record<number, boolean | 'unknown'>;
@@ -35,6 +37,7 @@ export function StudyNotesPanel({
   screenshots,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
   maxPolls = DEFAULT_MAX_POLLS,
+  preselect,
 }: Props) {
   const [selected, setSelected] = useState<number[]>([]); // user order
   const [consent, setConsentMap] = useState<ConsentMap>({});
@@ -46,7 +49,7 @@ export function StudyNotesPanel({
   const [message, setMessage] = useState<{ kind: 'info' | 'error'; text: string } | null>(null);
   const [serverWarning, setServerWarning] = useState<string | null>(null);
   const { state: poll, start, reset } = useOperationPolling(pollIntervalMs, maxPolls);
-  const providerMode = useProviderMode();
+  const { mode: providerMode, loading: providerLoading } = useProviderStatus();
 
   const byId = new Map(screenshots.map((s) => [s.screenshotId, s]));
   const nameOf = (id: number) => byId.get(id)?.originalFilename || `Screenshot #${id}`;
@@ -86,6 +89,16 @@ export function StudyNotesPanel({
     const res = await getConsent(id);
     setConsentMap((m) => ({ ...m, [id]: res.ok ? res.data : 'unknown' }));
   };
+
+  const lastNonce = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (!preselect || lastNonce.current === preselect.nonce) return;
+    lastNonce.current = preselect.nonce;
+    const ids = preselect.ids.slice(0, MAX_SELECTION);
+    setSelected(ids);
+    setMessage(null);
+    ids.forEach((id) => void loadConsent(id));
+  }, [preselect]);
 
   const toggle = (id: number) => {
     setMessage(null);
@@ -135,13 +148,17 @@ export function StudyNotesPanel({
       ? `I understand and agree: authorize simulated demo processing for ${sub(ungranted.length)}`
       : providerMode === 'openai'
         ? `I understand and agree: allow AI to read ${sub(ungranted.length)}`
-        : 'Provider status unavailable';
+        : providerLoading
+          ? 'Checking the AI provider\u2026'
+          : 'Provider status could not be confirmed';
   const generateLabel =
     providerMode === 'fake'
       ? 'Revive: generate study note (simulated demo)'
       : providerMode === 'openai'
         ? 'Revive: generate study note'
-        : 'Revive: generate study note (unavailable: provider status unconfirmed)';
+        : providerLoading
+          ? 'Revive: generate study note (checking the AI provider\u2026)'
+          : 'Revive: generate study note (unavailable: provider status could not be confirmed)';
 
   const onAuthorize = () =>
     guarded(async () => {
@@ -193,7 +210,7 @@ export function StudyNotesPanel({
         and turn them into one structured, editable note.
       </p>
 
-      <PrivacyNotice scope="many" mode={providerMode} />
+      <PrivacyNotice scope="many" mode={providerMode} loading={providerLoading} />
 
       <h3>1. Choose screenshots</h3>
       {screenshots.length === 0 ? (
@@ -300,7 +317,9 @@ export function StudyNotesPanel({
           {selected.length === 0
             ? 'Select at least 1 screenshot.'
             : providerMode === 'unknown'
-              ? 'Provider status is unavailable; generation is disabled until it can be confirmed.'
+              ? providerLoading
+                ? 'Checking the AI provider. Generation is unavailable until this finishes.'
+                : 'Provider status could not be confirmed; generation is disabled until it can be.'
               : !countOk
               ? `Select between ${MIN_SELECTION} and ${MAX_SELECTION} screenshots.`
               : 'Grant AI consent for every selected screenshot to continue.'}

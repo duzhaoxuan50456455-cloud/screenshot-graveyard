@@ -66,3 +66,11 @@ export function describeOrigin(origin: string, provider: ProviderMode | 'unknown
   if (provider === 'openai') return `${verb} by AI (a suggestion; it can be wrong)`;
   return `${verb} by AI`;
 }
+
+/** Poll requests failed, so the real state of the operation is not known. */
+export const STATUS_UNAVAILABLE_TEXT =
+  'Status temporarily unavailable. The analysis may still be running or may have finished. Nothing is assumed either way.';
+
+/** Shown wherever archiving is offered or explained. */
+export const CRYPT_GALLERY_NOTE =
+  'Archiving in The Crypt does not remove the photo from your phone gallery. It only moves it inside Screenshot Graveyard.';

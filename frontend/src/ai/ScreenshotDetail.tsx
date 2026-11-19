@@ -4,22 +4,34 @@ import {
   classifyScreenshot,
   editAnalysis,
   getAnalysis,
-  getConsent,
   setConsent,
   type Analysis,
   type Category,
 } from '../api/ai';
 import { imageUrl, type Screenshot } from '../api/client';
-import { describeOperationOutcome, describeRequestFailure } from './messages';
-import { PrivacyNotice, useProviderMode } from './PrivacyNotice';
+import {
+  CRYPT_GALLERY_NOTE,
+  describeOperationOutcome,
+  describeRequestFailure,
+  STATUS_UNAVAILABLE_TEXT,
+} from './messages';
+import { pollOperation } from './pollOperation';
+import { PrivacyNotice, useProviderStatus } from './PrivacyNotice';
 import { StatusBadge } from './StatusBadge';
 import {
-  DEFAULT_MAX_POLLS,
-  DEFAULT_POLL_INTERVAL_MS,
-  useOperationPolling,
-} from './useOperationPolling';
+  acquireRevive,
+  markReviveActive,
+  markReviveUnresolved,
+  releaseRevive,
+  REVIVE_IN_FLIGHT_TEXT,
+  REVIVE_UNRESOLVED_TEXT,
+} from './reviveCoordinator';
+import { useConsent } from './useConsent';
+import { DEFAULT_MAX_POLLS, DEFAULT_POLL_INTERVAL_MS, type PollState } from './useOperationPolling';
 
-type ConsentState = 'loading' | 'granted' | 'not_granted' | 'error';
+/** Detail's poll state: the shared phases plus "status unavailable" (poll requests failed). */
+type DetailPoll = PollState | { phase: 'unavailable'; operationId: number };
+
 type AnalysisState =
   | { phase: 'loading' }
   | { phase: 'none' }
@@ -35,9 +47,14 @@ interface Props {
    * Crypt views can reflect the real state without a reload.
    */
   onAnalysisChanged?: (analysis: Analysis) => void;
+  /** Secondary lifecycle actions, owned by the parent. */
+  onArchive?: (screenshotId: number) => void | Promise<void>;
+  onRestore?: (screenshotId: number) => void | Promise<void>;
+  lifecycleBusy?: boolean;
   pollIntervalMs?: number;
   maxPolls?: number;
 }
+
 
 /**
  * Open-screenshot panel: privacy warning, explicit consent, deliberate Revive,
@@ -50,18 +67,33 @@ export function ScreenshotDetail({
   screenshot,
   onClose,
   onAnalysisChanged,
+  onArchive,
+  onRestore,
+  lifecycleBusy = false,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
   maxPolls = DEFAULT_MAX_POLLS,
 }: Props) {
   const id = screenshot.screenshotId;
   const label = screenshot.originalFilename || `Screenshot #${id}`;
   const headingRef = useRef<HTMLHeadingElement | null>(null);
-  const [consent, setConsentState] = useState<ConsentState>('loading');
+  const { status: consentMap, set: setConsentLookup } = useConsent([id]);
+  const lookup = consentMap[id] ?? 'checking';
+  // Keep the labels used by the markup below.
+  const consent =
+    lookup === 'checking' ? 'loading' : lookup === 'lookup_failed' ? 'error' : lookup;
   const [analysis, setAnalysis] = useState<AnalysisState>({ phase: 'loading' });
   const [busy, setBusy] = useState(false); // request in flight (duplicate-click guard)
   const busyRef = useRef(false);
   const [message, setMessage] = useState<{ kind: 'info' | 'error'; text: string } | null>(null);
-  const { state: poll, start, reset } = useOperationPolling(pollIntervalMs, maxPolls);
+  const [poll, setPoll] = useState<DetailPoll>({ phase: 'idle' });
+  const aliveRef = useRef(true);
+  const runRef = useRef(0); // identifies the newest poll run; older runs stop quietly
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+    };
+  }, []);
   // Keep the latest callback in a ref so an unstable parent function can never
   // re-trigger the effects below (which would refetch in a loop).
   const changedRef = useRef(onAnalysisChanged);
@@ -71,7 +103,26 @@ export function ScreenshotDetail({
 
   const [draftCategory, setDraftCategory] = useState<Category>(CATEGORIES[0]);
   const [draftEpitaph, setDraftEpitaph] = useState('');
-  const providerMode = useProviderMode();
+  const { mode: providerMode, loading: providerLoading } = useProviderStatus();
+  const providerWord = providerLoading ? 'checking the AI provider\u2026' : 'provider status could not be confirmed';
+
+  // Escape dismisses the drawer. Ignore IME composition, handled keys and open dropdowns.
+  const closeRef = useRef(onClose);
+  useEffect(() => {
+    closeRef.current = onClose;
+  }, [onClose]);
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.isComposing || e.defaultPrevented) return;
+      // Do not discard an unsaved category/Epitaph draft or interrupt a request in flight.
+      if (guardEscapeRef.current) return;
+      closeRef.current();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
+
+  const guardEscapeRef = useRef(false);
 
   const loadAnalysis = useCallback(async () => {
     const res = await getAnalysis(id);
@@ -87,14 +138,13 @@ export function ScreenshotDetail({
     }
   }, [id]);
 
-  // Read-only on open: consent + any existing result. No AI call happens here.
+  // Read-only on open: any existing result (consent is read by useConsent). No AI call happens here.
   useEffect(() => {
     let active = true;
     headingRef.current?.focus();
     (async () => {
-      const [c, a] = await Promise.all([getConsent(id), getAnalysis(id)]);
+      const a = await getAnalysis(id);
       if (!active) return;
-      setConsentState(c.ok ? (c.data ? 'granted' : 'not_granted') : 'error');
       if (a.ok) {
         setAnalysis({ phase: 'ready', analysis: a.data });
         setDraftCategory(a.data.classification.category);
@@ -115,6 +165,46 @@ export function ScreenshotDetail({
     }
   }, [poll, loadAnalysis]);
 
+  // Release the shared Revive registry once polling is final. A timeout keeps the
+  // operation id so the next submission reconciles first.
+  useEffect(() => {
+    if (poll.phase === 'done' || poll.phase === 'error') releaseRevive(id);
+    else if (poll.phase === 'timeout' || poll.phase === 'unavailable') markReviveUnresolved(id);
+  }, [poll, id]);
+  // Closing the panel mid-poll leaves the operation unresolved, not forgotten.
+  const pollPhaseRef = useRef(poll.phase);
+  pollPhaseRef.current = poll.phase;
+  useEffect(
+    () => () => {
+      if (pollPhaseRef.current === 'polling') markReviveUnresolved(id);
+    },
+    [id],
+  );
+
+  /** Bounded poll that reports unreachable status as `unavailable`, never as pending or timeout. */
+  const runPoll = async (operationId: number) => {
+    const run = (runRef.current += 1);
+    setPoll({ phase: 'polling', operationId, attempts: 0 });
+    const outcome = await pollOperation(operationId, {
+      intervalMs: pollIntervalMs,
+      maxPolls,
+      isCancelled: () => !aliveRef.current || runRef.current !== run,
+    });
+    if (outcome.kind === 'cancelled') {
+      if (!aliveRef.current) markReviveUnresolved(id); // closed mid-poll: keep the id, do not forget it
+      return;
+    }
+    if (outcome.kind === 'done') {
+      setPoll({ phase: 'done', operationId, status: outcome.status, errorDetail: outcome.errorDetail, artifactId: outcome.artifactId });
+    } else if (outcome.kind === 'not_found') {
+      setPoll({ phase: 'error', operationId, message: 'Operation not found' });
+    } else if (outcome.kind === 'unavailable') {
+      setPoll({ phase: 'unavailable', operationId });
+    } else {
+      setPoll({ phase: 'timeout', operationId });
+    }
+  };
+
   const guarded = async (fn: () => Promise<void>) => {
     if (busyRef.current) return; // duplicate-click prevention
     busyRef.current = true;
@@ -132,7 +222,7 @@ export function ScreenshotDetail({
       setMessage(null);
       const res = await setConsent(id, true);
       if (res.ok) {
-        setConsentState('granted');
+        setConsentLookup(id, 'granted');
         setMessage({ kind: 'info', text: 'AI consent granted for this screenshot.' });
       } else {
         setMessage({ kind: 'error', text: describeRequestFailure(res) });
@@ -144,7 +234,7 @@ export function ScreenshotDetail({
       setMessage(null);
       const res = await setConsent(id, false);
       if (res.ok) {
-        setConsentState('not_granted');
+        setConsentLookup(id, 'not_granted');
         setMessage({
           kind: 'info',
           text: 'AI consent withdrawn. Future AI use is blocked. Consent cannot recall any content that may already have been processed.',
@@ -157,14 +247,31 @@ export function ScreenshotDetail({
   const onRevive = () =>
     guarded(async () => {
       setMessage(null);
-      reset();
+      runRef.current += 1; // abandon any earlier poll run
+      setPoll({ phase: 'idle' });
+      const lock = await acquireRevive(id);
+      if (!lock.ok) {
+        setMessage({
+          kind: 'error',
+          text: lock.reason === 'in_flight' ? REVIVE_IN_FLIGHT_TEXT : REVIVE_UNRESOLVED_TEXT,
+        });
+        return;
+      }
       const res = await classifyScreenshot(id);
       if (!res.ok) {
-        if (res.status === 403) setConsentState('not_granted');
+        releaseRevive(id);
+        // The server says consent is missing: clear any stale "granted".
+        if (res.status === 403) setConsentLookup(id, 'not_granted');
         setMessage({ kind: 'error', text: describeRequestFailure(res) });
         return;
       }
-      start(res.data.operationId);
+      markReviveActive(id, res.data.operationId);
+      if (!aliveRef.current) {
+        // The panel was closed while classify was in flight: nobody will poll, keep the id for reconciliation.
+        markReviveUnresolved(id);
+        return;
+      }
+      void runPoll(res.data.operationId);
     });
 
   const onSaveEdit = () =>
@@ -189,6 +296,11 @@ export function ScreenshotDetail({
     });
 
   const polling = poll.phase === 'polling';
+  const draftDirty =
+    analysis.phase === 'ready' &&
+    (draftCategory !== analysis.analysis.classification.category ||
+      draftEpitaph.trim() !== analysis.analysis.epitaph.text);
+  guardEscapeRef.current = draftDirty || busy;
   const canRevive =
     providerMode !== 'unknown' &&
     consent === 'granted' &&
@@ -200,13 +312,15 @@ export function ScreenshotDetail({
       ? 'I understand and agree: authorize simulated demo analysis'
       : providerMode === 'openai'
         ? 'I understand and agree: allow AI to read this screenshot'
-        : 'Provider status unavailable';
+        : providerLoading
+          ? 'Checking the AI provider\u2026'
+          : 'Provider status could not be confirmed';
   const reviveLabel =
     providerMode === 'fake'
       ? 'Revive: analyze with AI (simulated demo)'
       : providerMode === 'openai'
         ? 'Revive: analyze with AI'
-        : 'Revive: analyze with AI (unavailable: provider status unconfirmed)';
+        : `Revive: analyze with AI (unavailable: ${providerWord})`;
 
   return (
     <section className="ai-detail" role="dialog" aria-modal="false" aria-labelledby="ai-detail-h">
@@ -221,7 +335,7 @@ export function ScreenshotDetail({
 
       <img className="ai-detail__img" src={imageUrl(id)} alt={`Screenshot ${label}`} />
 
-      <PrivacyNotice scope="one" mode={providerMode} />
+      <PrivacyNotice scope="one" mode={providerMode} loading={providerLoading} />
 
       <div className="ai-block" aria-labelledby="ai-consent-h">
         <h4 id="ai-consent-h">AI consent</h4>
@@ -262,14 +376,18 @@ export function ScreenshotDetail({
           <>
             <button
               type="button"
-              className="gy-btn gy-btn--revive"
+              className={consent === 'granted' ? 'gy-btn gy-btn--revive' : 'gy-btn'}
               onClick={onRevive}
               disabled={!canRevive}
             >
               {busy || polling ? 'Reviving\u2026' : reviveLabel}
             </button>
             {providerMode === 'unknown' ? (
-              <p className="ai-hint">Provider status must be confirmed before Revive is available.</p>
+              <p className="ai-hint">
+                {providerLoading
+                  ? 'Checking the AI provider. Revive is available once this finishes.'
+                  : 'Provider status could not be confirmed, so Revive is unavailable.'}
+              </p>
             ) : consent !== 'granted' && (
               <p className="ai-hint">Grant AI consent above to enable Revive.</p>
             )}
@@ -307,9 +425,34 @@ export function ScreenshotDetail({
               forever; reopen this screenshot later to see whether it completed.
             </p>
           )}
+          {poll.phase === 'unavailable' && (
+            <p role="alert" data-testid="detail-op-unavailable">
+              {STATUS_UNAVAILABLE_TEXT} (Operation #{poll.operationId}.)
+            </p>
+          )}
           {poll.phase === 'error' && <p role="alert">{poll.message}</p>}
         </div>
       </div>
+
+      {(onArchive || onRestore) && (
+        <div className="ai-block" aria-labelledby="ai-lifecycle-h">
+          <h4 id="ai-lifecycle-h">{screenshot.state === 'archived' ? 'In The Crypt' : 'Safe Burial'}</h4>
+          <p className="ai-hint" data-testid="detail-crypt-note">{CRYPT_GALLERY_NOTE}</p>
+          {screenshot.state === 'archived' ? (
+            onRestore && (
+              <button type="button" className="gy-btn" disabled={lifecycleBusy} onClick={() => void onRestore(id)}>
+                {lifecycleBusy ? 'Resurrecting...' : 'Resurrection: restore from The Crypt'}
+              </button>
+            )
+          ) : (
+            onArchive && (
+              <button type="button" className="gy-btn" disabled={lifecycleBusy} onClick={() => void onArchive(id)}>
+                {lifecycleBusy ? 'Burying...' : 'Safe Burial: move to The Crypt'}
+              </button>
+            )
+          )}
+        </div>
+      )}
 
       {analysis.phase === 'ready' && (
         <div className="ai-block" aria-labelledby="ai-result-h">
