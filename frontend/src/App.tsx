@@ -3,6 +3,7 @@ import './App.css';
 import Graveyard from './Graveyard';
 import HealthStatus from './HealthStatus';
 import { isDemoMode } from './uiMode';
+import LiveWorkspace from './shell/LiveWorkspace';
 
 // The visual redesign runs in a frontend-only demo mode: it uses synthetic
 // fixtures and never touches the API client. Enable with `?demo=1` or by
@@ -17,6 +18,9 @@ function App() {
       </Suspense>
     );
   }
+  if (new URLSearchParams(window.location.search).get('view') !== 'classic') {
+    return <LiveWorkspace />;
+  }
   return (
     <main className="app">
       <header className="app__header">
@@ -25,6 +29,7 @@ function App() {
           Where screenshots finish their unfinished business.
         </p>
         <HealthStatus />
+        <a href="?">Back to the new Workspace</a>
       </header>
       <Graveyard />
     </main>

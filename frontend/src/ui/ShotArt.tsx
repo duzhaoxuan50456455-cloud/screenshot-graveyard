@@ -1,4 +1,17 @@
+import { useState } from 'react';
+
 export type ArtKind = 'lecture' | 'poster' | 'shoe' | 'chat' | 'image';
+
+function ImagePreview({ src, alt }: { src: string; alt: string }) {
+  const [failed, setFailed] = useState(false);
+  return (
+    <div className="shot-art shot-art--image" role="img" aria-label={failed ? `${alt}: unavailable` : alt}>
+      {failed
+        ? <p className="sg-preview-unavailable">Preview unavailable</p>
+        : <img src={src} alt="" onError={() => setFailed(true)} />}
+    </div>
+  );
+}
 
 /**
  * Synthetic "screenshot" artwork for demo fixtures. Everything here is invented
@@ -6,6 +19,7 @@ export type ArtKind = 'lecture' | 'poster' | 'shoe' | 'chat' | 'image';
  * Sizes use container query units so the art scales with its card.
  */
 export function ShotArt({ kind, src, alt }: { kind: ArtKind; src?: string; alt?: string }) {
+  if (kind === 'image' && src) return <ImagePreview key={src} src={src} alt={alt ?? 'Screenshot preview'} />;
   return (
     <div className={`shot-art shot-art--${kind}`} role="img" aria-label={alt ?? `Demo ${kind} screenshot`}>
       {kind === 'lecture' && (
@@ -58,7 +72,6 @@ export function ShotArt({ kind, src, alt }: { kind: ArtKind; src?: string; alt?:
           <p className="bub r">Absolutely!! Same time next year? 👀</p>
         </div>
       )}
-      {kind === 'image' && src && <img src={src} alt="" />}
     </div>
   );
 }

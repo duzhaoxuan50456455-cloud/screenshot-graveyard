@@ -4,7 +4,7 @@ import { HeaderArt } from '../ui/HeaderArt';
 import { Icon, type IconName } from '../ui/Icon';
 import type { ViewId } from './types';
 
-export function AppHeader({ modeLabel }: { modeLabel: string }) {
+export function AppHeader({ modeLabel, demo = true }: { modeLabel: string; demo?: boolean }) {
   return (
     <header className="sg-header">
       <HeaderArt />
@@ -16,7 +16,7 @@ export function AppHeader({ modeLabel }: { modeLabel: string }) {
             <p className="sg-brand__tag">Where screenshots finish their unfinished business.</p>
           </div>
         </div>
-        <span className="sg-mode-pill" title="No live AI calls are made in this mode">
+        <span className="sg-mode-pill" title={demo ? 'No live AI calls are made in this mode' : undefined}>
           <Icon name="sparkles" size={15} />
           {modeLabel}
         </span>
@@ -46,11 +46,13 @@ export function NavTabs({
   onNavigate,
   cryptCount,
   pendingCount,
+  views,
 }: {
   active: ViewId;
   onNavigate: (v: ViewId) => void;
   cryptCount: number;
   pendingCount: number;
+  views?: readonly ViewId[];
 }) {
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
     if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft' && e.key !== 'Home' && e.key !== 'End') return;
@@ -64,7 +66,7 @@ export function NavTabs({
   };
   return (
     <nav className="sg-nav" aria-label="Main" onKeyDown={onKeyDown}>
-      {TABS.map((t) => {
+      {TABS.filter((t) => !views || views.includes(t.id)).map((t) => {
         const count = t.id === 'crypt' ? cryptCount : t.id === 'creations' ? pendingCount : 0;
         return (
           <button

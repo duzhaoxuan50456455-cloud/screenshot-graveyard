@@ -7,11 +7,22 @@ import type { ActionDef, ActionId, ShotVM } from './types';
 
 /* ---------------- Upload drop zone ---------------- */
 
-export function UploadDropZone({ onFiles, hint }: { onFiles: (files: File[]) => void; hint: string }) {
+export function UploadDropZone({
+  onFiles,
+  hint,
+  disabled = false,
+  filterByMime = true,
+}: {
+  onFiles: (files: File[]) => void;
+  hint: string;
+  disabled?: boolean;
+  filterByMime?: boolean;
+}) {
   const [over, setOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const take = (list: FileList | null) => {
-    const files = Array.from(list ?? []).filter((f) => f.type.startsWith('image/'));
+    if (disabled) return;
+    const files = Array.from(list ?? []).filter((f) => !filterByMime || f.type.startsWith('image/'));
     if (files.length) onFiles(files);
   };
   const onDrop = (e: DragEvent) => {
@@ -24,7 +35,7 @@ export function UploadDropZone({ onFiles, hint }: { onFiles: (files: File[]) => 
       className={`sg-drop ${over ? 'sg-drop--over' : ''}`}
       onDragOver={(e) => {
         e.preventDefault();
-        setOver(true);
+        if (!disabled) setOver(true);
       }}
       onDragLeave={() => setOver(false)}
       onDrop={onDrop}
@@ -34,7 +45,7 @@ export function UploadDropZone({ onFiles, hint }: { onFiles: (files: File[]) => 
         <Icon name="upload" size={26} />
         <strong>Upload screenshots</strong>
         <span className="sg-drop__or">or drag &amp; drop here</span>
-        <Button className="sg-drop__browse" onClick={() => inputRef.current?.click()}>
+        <Button className="sg-drop__browse" disabled={disabled} onClick={() => inputRef.current?.click()}>
           Browse
         </Button>
         <input
@@ -42,6 +53,7 @@ export function UploadDropZone({ onFiles, hint }: { onFiles: (files: File[]) => 
           type="file"
           accept="image/*"
           multiple
+          disabled={disabled}
           className="sg-sr-only"
           tabIndex={-1}
           aria-label="Choose screenshot files"
@@ -127,7 +139,7 @@ export function ScreenshotCard({
   shot: ShotVM;
   selected: boolean;
   actionLabel?: string;
-  onToggle: () => void;
+  onToggle?: () => void;
   onOpen: (opener: HTMLElement) => void;
 }) {
   const icon = shot.suggestedAction === 'add_calendar' ? 'calendar' : shot.suggestedAction === 'make_notes' ? 'sparkles' : 'heart';
@@ -135,7 +147,9 @@ export function ScreenshotCard({
     <article className={`sg-shot ui-card ${selected ? 'ui-card--selected' : ''}`} aria-label={shot.title}>
       <div className="sg-shot__thumb">
         <ShotArt kind={shot.art} src={shot.imageSrc} alt={`Preview of ${shot.title}`} />
-        <Checkbox className="sg-shot__check" checked={selected} onChange={onToggle} label={`Select ${shot.title}`} />
+        {onToggle && (
+          <Checkbox className="sg-shot__check" checked={selected} onChange={onToggle} label={`Select ${shot.title}`} />
+        )}
         <button
           type="button"
           className="sg-shot__expand"
@@ -158,7 +172,9 @@ export function ScreenshotCard({
             Suggested: <b>{actionLabel}</b>
           </span>
         ) : (
-          <span className="sg-chip sg-chip--quiet">{shot.local ? 'Local preview, not uploaded' : 'No suggestion'}</span>
+          <span className="sg-chip sg-chip--quiet">
+            {shot.statusLabel ?? (shot.local ? 'Local preview, not uploaded' : 'No suggestion')}
+          </span>
         )}
         <button type="button" className="sg-link" onClick={(e) => onOpen(e.currentTarget)} aria-label={`View ${shot.title}`}>
           View <Icon name="arrowRight" size={14} />
@@ -170,22 +186,24 @@ export function ScreenshotCard({
 
 export function ScreenshotGallery({
   shots,
-  selectedIds,
+  selectedIds = [],
   actions,
   onToggle,
   onOpen,
+  emptyMessage = 'No screenshots match these filters.',
 }: {
   shots: ShotVM[];
-  selectedIds: string[];
-  actions: Record<ActionId, ActionDef>;
-  onToggle: (id: string) => void;
+  selectedIds?: string[];
+  actions?: Record<ActionId, ActionDef>;
+  onToggle?: (id: string) => void;
   onOpen: (id: string, opener: HTMLElement) => void;
+  emptyMessage?: string;
 }) {
   if (shots.length === 0) {
     return (
       <div className="sg-empty" role="status">
         <Icon name="image" size={28} />
-        <p>No screenshots match these filters.</p>
+        <p>{emptyMessage}</p>
       </div>
     );
   }
@@ -196,8 +214,8 @@ export function ScreenshotGallery({
           key={s.id}
           shot={s}
           selected={selectedIds.includes(s.id)}
-          actionLabel={s.suggestedAction ? actions[s.suggestedAction].label : undefined}
-          onToggle={() => onToggle(s.id)}
+          actionLabel={s.suggestedAction ? actions?.[s.suggestedAction].label : undefined}
+          onToggle={onToggle ? () => onToggle(s.id) : undefined}
           onOpen={(el) => onOpen(s.id, el)}
         />
       ))}

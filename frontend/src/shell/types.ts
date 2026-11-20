@@ -20,8 +20,10 @@ export interface ShotVM {
   savedDaysAgo: number;
   art: ArtKind;
   topic: ShotTopic;
-  /** Object URL for a locally dropped file. Never uploaded in demo mode. */
+  /** Demo object URL or same-origin authorized image endpoint. */
   imageSrc?: string;
+  /** Status derived from the real screenshot record, when present. */
+  statusLabel?: string;
   /** Suggested purpose, shown as a small label on the card. */
   suggestedAction?: ActionId;
   /** True for screenshots added from the drop zone in this browser session. */
