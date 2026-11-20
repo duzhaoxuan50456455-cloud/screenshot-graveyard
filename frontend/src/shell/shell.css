@@ -245,3 +245,7 @@
 
 .sg-assistant { grid-template-columns: minmax(0, 1fr); overflow-x: hidden; }
 .sg-assistant > * { min-width: 0; }
+
+.sg-drawer__actions { display: grid; gap: 8px; width: 100%; }
+.sg-form-error { color: #ffb4b4; font-size: 13px; }
+.sg-uncertain { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 10px 12px; border-radius: 12px; border: 1px dashed var(--sg-peach); background: rgba(255, 176, 102, 0.08); font-size: 13px; }

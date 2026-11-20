@@ -126,4 +126,14 @@ describe('archive/restore', () => {
       state: 'archived',
     });
   });
+  it('classifies lifecycle failures as rejected (4xx) or unknown (no usable answer)', async () => {
+    const respond = (f: () => Promise<Response>) => archiveScreenshot(2, vi.fn(f) as unknown as typeof fetch);
+    expect(await respond(() => Promise.resolve(jsonResponse({}, 404)))).toEqual({ ok: false, error: 'HTTP 404', outcome: 'rejected' });
+    expect(await respond(() => Promise.resolve(jsonResponse({}, 403)))).toMatchObject({ outcome: 'rejected' });
+    expect(await respond(() => Promise.resolve(jsonResponse({}, 503)))).toEqual({ ok: false, error: 'HTTP 503', outcome: 'unknown' });
+    expect(await respond(() => Promise.reject(new TypeError('offline')))).toEqual({ ok: false, error: 'Network request failed', outcome: 'unknown' });
+    expect(await respond(() => Promise.reject(new DOMException('t', 'TimeoutError')))).toEqual({ ok: false, error: 'Request timed out', outcome: 'unknown' });
+    expect(await respond(() => Promise.resolve(new Response('not json', { status: 200 })))).toEqual({ ok: false, error: 'Invalid JSON response', outcome: 'unknown' });
+    expect(await respond(() => Promise.resolve(jsonResponse({ screenshotId: 'x' })))).toEqual({ ok: false, error: 'Unexpected response shape', outcome: 'unknown' });
+  });
 });

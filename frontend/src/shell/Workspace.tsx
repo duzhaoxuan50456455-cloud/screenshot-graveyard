@@ -1,4 +1,4 @@
-import { useRef, useState, type DragEvent } from 'react';
+import { useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { Button, Checkbox, MenuButton, SelectField } from '../ui/primitives';
 import { Icon } from '../ui/Icon';
 import { ShotArt } from '../ui/ShotArt';
@@ -135,12 +135,15 @@ export function ScreenshotCard({
   actionLabel,
   onToggle,
   onOpen,
+  extra,
 }: {
   shot: ShotVM;
   selected: boolean;
   actionLabel?: string;
   onToggle?: () => void;
   onOpen: (opener: HTMLElement) => void;
+  /** Optional card-level action row (e.g. Resurrection in The Crypt). */
+  extra?: ReactNode;
 }) {
   const icon = shot.suggestedAction === 'add_calendar' ? 'calendar' : shot.suggestedAction === 'make_notes' ? 'sparkles' : 'heart';
   return (
@@ -180,6 +183,7 @@ export function ScreenshotCard({
           View <Icon name="arrowRight" size={14} />
         </button>
       </div>
+      {extra}
     </article>
   );
 }
@@ -191,6 +195,7 @@ export function ScreenshotGallery({
   onToggle,
   onOpen,
   emptyMessage = 'No screenshots match these filters.',
+  renderExtra,
 }: {
   shots: ShotVM[];
   selectedIds?: string[];
@@ -198,6 +203,7 @@ export function ScreenshotGallery({
   onToggle?: (id: string) => void;
   onOpen: (id: string, opener: HTMLElement) => void;
   emptyMessage?: string;
+  renderExtra?: (shot: ShotVM) => ReactNode;
 }) {
   if (shots.length === 0) {
     return (
@@ -217,6 +223,7 @@ export function ScreenshotGallery({
           actionLabel={s.suggestedAction ? actions?.[s.suggestedAction].label : undefined}
           onToggle={onToggle ? () => onToggle(s.id) : undefined}
           onOpen={(el) => onOpen(s.id, el)}
+          extra={renderExtra?.(s)}
         />
       ))}
     </div>

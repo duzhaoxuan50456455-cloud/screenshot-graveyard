@@ -32,3 +32,16 @@ Layers:
 3. **Safety blocker, unchanged:** the backend consent-dispatch race (see `docs/` proposal) must be fixed before real AI provider acceptance.
 4. Approve step and external connections need backend work.
 5. Header bell and account buttons are inert placeholders.
+
+## Safe Burial / Resurrection: outcome limits of the current API
+
+`POST /api/screenshots/{id}/archive` and `/restore` return no operation id, and there is no lifecycle status endpoint. The only evidence the client can get about a request it lost track of (timeout, dropped connection, 5xx, unreadable or mismatched body) is the screenshot's current `state` from `GET /api/screenshots`.
+
+What the Gothic Workspace does with that:
+- A matching, explicit reply is the only thing treated as success or failure. A 4xx, or a reply for the right screenshot with `status: failed`, is a definite failure. Anything else is **unresolved**.
+- An unresolved action is never reported as failed and is never replayed. The screenshot's Safe Burial / Resurrection control stays blocked.
+- "Check status" re-reads the list (bounded to 10 s). Only a read that is still authoritative (not superseded by a newer read or a confirmed change) and shows the expected state resolves it, as success.
+- An unchanged state does **not** resolve it. The earlier request may still commit after the read, and the client cannot tell "failed" from "not finished yet". No wait period is treated as proof.
+- Recovery: check again, or reload the page, which starts from the server's current state. Both actions are idempotent on the server today, so a late commit cannot corrupt data, but the UI does not rely on that.
+
+Definitive resolution needs backend support: an idempotency key or operation id returned by (or sent with) the lifecycle POST plus a status read, or a state precondition on the transition. That is a separate backend task.

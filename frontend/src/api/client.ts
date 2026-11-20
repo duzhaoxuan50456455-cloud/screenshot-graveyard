@@ -284,9 +284,16 @@ export async function uploadScreenshots(
 
 export type LifecycleStatus = 'successful' | 'failed';
 
+/**
+ * `rejected`: the server answered with a 4xx, so the action was not performed.
+ * `unknown`: no usable answer (network error, timeout, 5xx, unreadable or
+ * mismatched body). The server may have committed the change, so callers must
+ * check the authoritative state instead of assuming failure.
+ */
+export type LifecycleOutcome = 'rejected' | 'unknown';
 export type LifecycleResult =
   | { ok: true; screenshotId: number; status: LifecycleStatus; state: ScreenshotState }
-  | { ok: false; error: string };
+  | { ok: false; error: string; outcome: LifecycleOutcome };
 
 async function postLifecycle(
   path: string,
@@ -299,20 +306,29 @@ async function postLifecycle(
       headers: { 'X-Requested-With': 'fetch', Accept: 'application/json' },
       credentials: 'same-origin',
     });
-  } catch {
-    return { ok: false, error: 'Network request failed' };
+  } catch (e) {
+    const aborted = e instanceof DOMException && (e.name === 'AbortError' || e.name === 'TimeoutError');
+    return {
+      ok: false,
+      error: aborted ? 'Request timed out' : 'Network request failed',
+      outcome: 'unknown',
+    };
   }
   if (!response.ok) {
-    return { ok: false, error: `HTTP ${response.status}` };
+    return {
+      ok: false,
+      error: `HTTP ${response.status}`,
+      outcome: response.status >= 400 && response.status < 500 ? 'rejected' : 'unknown',
+    };
   }
   let body: unknown;
   try {
     body = await response.json();
   } catch {
-    return { ok: false, error: 'Invalid JSON response' };
+    return { ok: false, error: 'Invalid JSON response', outcome: 'unknown' };
   }
   if (typeof body !== 'object' || body === null) {
-    return { ok: false, error: 'Unexpected response shape' };
+    return { ok: false, error: 'Unexpected response shape', outcome: 'unknown' };
   }
   const v = body as Record<string, unknown>;
   if (
@@ -320,7 +336,7 @@ async function postLifecycle(
     (v.status !== 'successful' && v.status !== 'failed') ||
     (v.state !== 'active' && v.state !== 'archived')
   ) {
-    return { ok: false, error: 'Unexpected response shape' };
+    return { ok: false, error: 'Unexpected response shape', outcome: 'unknown' };
   }
   return {
     ok: true,
